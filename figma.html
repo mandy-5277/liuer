@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=375, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>六儿 — 微信小游戏 UI 设计</title>
+<style>
+/* ========== 全局样式 ========== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Manrope', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #EAE2D5;
+  display: flex; justify-content: center; align-items: flex-start;
+  min-height: 100vh; padding: 16px 0; overflow-x: hidden;
+}
+.page-host {
+  display: flex; flex-wrap: wrap; gap: 24px; justify-content: center;
+  max-width: 1200px;
+}
+/* 页面容器 */
+.page {
+  width: 375px; height: 812px;
+  position: relative; overflow: hidden;
+  background: #F5F0E8; border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(60,47,40,0.15);
+  flex-shrink: 0;
+}
+.page-label {
+  position: absolute; top: -24px; left: 12px;
+  font-size: 11px; font-weight: 700; color: #7E756F;
+  background: #F5F0E8; padding: 2px 10px; border-radius: 4px;
+  z-index: 10;
+}
+
+/* ========== 顶部资源栏 ========== */
+.top-bar {
+  width: 100%; height: 44px;
+  background: #F5F0E8;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; position: absolute; z-index: 5;
+}
+.top-logo { font-size: 18px; font-weight: 700; color: #8B6914; }
+.top-res { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; color: #3C2F28; }
+.top-res .energy { display: flex; align-items: center; gap: 4px; }
+.top-res .cd { font-size: 11px; color: #B0B0B0; font-weight: 400; }
+.top-res .coins { display: flex; align-items: center; gap: 4px; }
+.color-approx { color: #8B6914 !important; }
+
+/* ========== 底部导航栏 ========== */
+.bottom-nav {
+  width: 100%; height: 76px;
+  position: absolute; bottom: 0; left: 0;
+  display: flex; align-items: center; justify-content: space-around;
+  padding: 0 32px; background: #F5F0E8;
+  border-top: 1px solid #E8E3DA;
+}
+.nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
+.nav-item .icon { font-size: 20px; }
+.nav-item .label { font-size: 11px; font-weight: 600; }
+.nav-item.active .label { color: #8B6914; }
+.nav-item:not(.active) .label { color: #B0B0B0; }
+
+/* ========== 按钮 ========== */
+.btn-primary {
+  display: flex; align-items: center; justify-content: center;
+  background: #8B6914; color: white; font-size: 16px; font-weight: 700;
+  border-radius: 12px; border: none; cursor: pointer;
+  height: 48px; width: 100%;
+}
+.btn-secondary {
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; color: #8B6914; font-size: 16px; font-weight: 700;
+  border-radius: 12px; border: 1.5px solid #8B6914; cursor: pointer;
+  height: 48px; width: 100%;
+}
+.btn-ghost {
+  display: flex; align-items: center; justify-content: center;
+  background: #F5F0E8; color: #3C2F28; font-size: 14px; font-weight: 600;
+  border-radius: 8px; border: 1px solid #B0B0B0; cursor: pointer;
+  height: 42px;
+}
+
+/* ========== 卡片 ========== */
+.card {
+  background: white; border-radius: 12px;
+  outline: 1px solid #E8E3DA; outline-offset: -1px;
+}
+
+/* ========== 棋盘 ========== */
+.board-wrap {
+  display: flex; align-items: center; justify-content: center;
+}
+.board-bg {
+  width: 226px; height: 226px;
+  background: #E8DBCF; border-radius: 8px;
+  position: relative; overflow: hidden;
+}
+.board-grid {
+  width: 180px; height: 180px;
+  position: absolute; left: 23px; top: 23px;
+  border: 1.5px solid #3C2F28;
+}
+.board-grid-line-h {
+  position: absolute; left: 0; width: 180px;
+  height: 0; border-top: 1.5px solid #3C2F28;
+}
+.board-grid-line-v {
+  position: absolute; top: 0; height: 180px;
+  width: 0; border-left: 1.5px solid #3C2F28;
+}
+/* 交叉点 */
+.board-dot {
+  position: absolute;
+  width: 6px; height: 6px;
+  background: #C0B8A8; border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+/* 棋子 */
+.piece {
+  position: absolute; width: 28px; height: 28px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.piece-black { background: #1A1A1A; }
+.piece-white { background: #FEFEFE; border: 1.5px solid #D0D0D0; }
+.piece-selected { box-shadow: 0 0 0 3px #D4A843, 0 2px 6px rgba(0,0,0,0.25); }
+.piece-capturable { box-shadow: 0 0 0 3px #D94A4A, 0 2px 6px rgba(0,0,0,0.25); animation: pulse-red 1s infinite; }
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 3px #D94A4A, 0 2px 6px rgba(0,0,0,0.25); }
+  50% { box-shadow: 0 0 0 6px rgba(217,74,74,0.4), 0 2px 6px rgba(0,0,0,0.25); }
+}
+
+/* 坐标标签 */
+.board-coords {
+  position: absolute; left: 6px; top: 6px;
+  width: 227px; height: 218px; pointer-events: none;
+}
+.board-coords span {
+  position: absolute; font-size: 9px; color: #B0B0B0; font-weight: 400;
+}
+
+/* 阶段标签 */
+.phase-tag {
+  display: flex; align-items: center; justify-content: center;
+  position: absolute; left: 50%; transform: translateX(-50%);
+  height: 27px; padding: 0 16px;
+  border-radius: 100px; font-size: 14px; font-weight: 700;
+  z-index: 2;
+}
+.phase-place { top: 0; background: #4A90D9; color: white; }
+.phase-capture { top: 0; background: #D94A4A; color: white; }
+.phase-move { top: 0; background: #4AB86A; color: white; }
+
+/* 玩家信息条 */
+.player-bar {
+  height: 56px; padding: 10px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.player-left { display: flex; align-items: center; gap: 8px; }
+.player-avatar {
+  width: 36px; height: 36px; border-radius: 50%; background: #E8E3DA;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.player-name { font-size: 14px; font-weight: 600; color: #3C2F28; }
+.player-rank {
+  height: 14px; padding: 1px 4px; background: #E8E3DA;
+  border-radius: 4px; font-size: 9px; font-weight: 600; color: #3C2F28;
+  display: inline-flex; align-items: center; margin-top: 2px;
+}
+.player-right { display: flex; align-items: center; gap: 8px; }
+.badge {
+  height: 19px; padding: 1.5px 6px; border-radius: 100px;
+  font-size: 11px; font-weight: 700; color: white;
+}
+.badge-red { background: #D94A4A; }
+.badge-gray { background: #B0B0B0; }
+.countdown-ring {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700;
+}
+.cd-blue { border: 2px solid #4A90D9; color: #4A90D9; }
+.cd-red { border: 2px solid #D94A4A; color: #D94A4A; }
+.cd-green { border: 2px solid #4AB86A; color: #4AB86A; }
+
+/* 操作按钮栏 */
+.action-bar {
+  height: 48px; display: flex; gap: 12px; padding: 0 16px;
+}
+
+/* 个人信息卡 */
+.profile-card {
+  padding: 16px; display: flex; align-items: center; gap: 12px;
+}
+.profile-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: #E8E3DA; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+}
+.profile-info { flex: 1; }
+.profile-name { font-size: 15px; font-weight: 700; color: #3C2F28; }
+.profile-rank-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 4px;
+}
+.profile-stat {
+  text-align: center; min-width: 44px;
+}
+.profile-stat .num { font-size: 20px; font-weight: 700; color: #3C2F28; }
+.profile-stat .label { font-size: 11px; color: #7E756F; margin-top: 2px; }
+
+/* 精力进度条 */
+.energy-bar-wrap {
+  margin-top: 8px; width: 100%;
+}
+.energy-bar-label {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: #3C2F28; margin-bottom: 4px;
+}
+.energy-bar-track {
+  height: 8px; background: #E8E3DA; border-radius: 100px; overflow: hidden;
+}
+.energy-bar-fill {
+  height: 100%; background: #8B6914; border-radius: 100px;
+  transition: width 0.3s;
+}
+
+/* 弹窗遮罩 */
+.modal-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.65); z-index: 20;
+}
+.modal-card {
+  position: absolute; z-index: 21; background: white;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.25); border-radius: 16px;
+}
+
+/* 结算弹窗 */
+.settle-title { font-size: 28px; font-weight: 700; text-align: center; }
+.settle-title.win { color: #D4A843; }
+.settle-title.lose { color: #B0B0B0; }
+.settle-title.draw { color: #4A90D9; }
+.settle-subtitle { font-size: 14px; color: #7E756F; text-align: center; margin-top: 6px; }
+.settle-score {
+  height: 46px; border-radius: 100px; text-align: center;
+  line-height: 46px; font-size: 22px; font-weight: 700;
+}
+.settle-score.win { background: rgba(74,184,106,0.1); color: #4AB86A; }
+.settle-score.lose { background: rgba(217,74,74,0.1); color: #D94A4A; }
+.settle-score.draw { background: rgba(74,144,217,0.1); color: #4A90D9; font-size: 16px; }
+
+.settle-detail {
+  background: #F5F0E8; border-radius: 12px;
+  outline: 1px solid #E8E3DA; outline-offset: -1px;
+  padding: 12px;
+}
+.settle-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+.settle-row + .settle-row { border-top: 1px solid #E8E3DA; margin-top: 8px; padding-top: 8px; }
+
+/* 段位进度条 */
+.rank-progress { width: 100%; margin-top: 12px; }
+.rank-progress-header { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+.rank-progress-track { height: 10px; background: #E8E3DA; border-radius: 100px; overflow: hidden; }
+.rank-progress-fill { height: 100%; background: #D4A843; border-radius: 100px; }
+
+/* 通用弹窗卡片 */
+.popup-item {
+  width: 351px; background: white; border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05); padding: 16px; margin-bottom: 12px;
+}
+.popup-label { font-size: 11px; font-weight: 700; color: #7E756F; margin-bottom: 8px; }
+
+/* 规则链接 */
+.rule-link { font-size: 13px; color: #B0B0B0; text-align: center; padding: 8px 0; cursor: pointer; }
+
+/* 页面头部 */
+.page-header {
+  height: 46px; padding: 12px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.page-header .title { font-size: 16px; font-weight: 700; color: #3C2F28; }
+</style>
+</head>
+<body>
+<div class="page-host">
+
+<!-- ==================== 1. 首页大厅 (Home) ==================== -->
+<div class="page" id="page-home">
+  <div class="page-label">1. 首页大厅</div>
+  <!-- 顶部资源栏 -->
+  <div class="top-bar" style="top:0;">
+    <span class="top-logo">六儿</span>
+    <div class="top-res">
+      <span class="energy">⚡ 5/30</span>
+      <span class="cd">⏳ 00:45</span>
+      <span class="coins">🪙 280</span>
+    </div>
+  </div>
+
+  <!-- 中央区域: 棋盘GIF + 标题 + 按钮 -->
+  <div style="position:absolute;top:60px;left:0;width:100%;text-align:center;">
+    <!-- 游戏标题 -->
+    <div style="font-size:28px;font-weight:700;color:#3C2F28;text-align:center;margin-bottom:4px;">六儿</div>
+    <!-- 棋盘GIF区域 -->
+    <div style="display:flex;justify-content:center;margin:8px 0 12px;">
+      <div style="width:224px;height:224px;background:white;border-radius:16px;outline:1px solid #E8E3DA;display:flex;align-items:center;justify-content:center;position:relative;">
+        <div class="board-bg" style="width:200px;height:200px;">
+          <div class="board-grid" style="width:160px;height:160px;left:20px;top:20px;">
+            <div class="board-grid-line-h" style="width:160px;top:32px;"></div>
+            <div class="board-grid-line-h" style="width:160px;top:64px;"></div>
+            <div class="board-grid-line-h" style="width:160px;top:96px;"></div>
+            <div class="board-grid-line-h" style="width:160px;top:128px;"></div>
+            <div class="board-grid-line-v" style="height:160px;left:32px;"></div>
+            <div class="board-grid-line-v" style="height:160px;left:64px;"></div>
+            <div class="board-grid-line-v" style="height:160px;left:96px;"></div>
+            <div class="board-grid-line-v" style="height:160px;left:128px;"></div>
+            <!-- 交叉点 -->
+            <div class="board-dot" style="left:0;top:0;"></div><div class="board-dot" style="left:32px;top:0;"></div><div class="board-dot" style="left:64px;top:0;"></div><div class="board-dot" style="left:96px;top:0;"></div><div class="board-dot" style="left:128px;top:0;"></div><div class="board-dot" style="left:160px;top:0;"></div>
+            <div class="board-dot" style="left:0;top:32px;"></div><div class="board-dot" style="left:32px;top:32px;"></div><div class="board-dot" style="left:64px;top:32px;"></div><div class="board-dot" style="left:96px;top:32px;"></div><div class="board-dot" style="left:128px;top:32px;"></div><div class="board-dot" style="left:160px;top:32px;"></div>
+            <div class="board-dot" style="left:0;top:64px;"></div><div class="board-dot" style="left:32px;top:64px;"></div><div class="board-dot" style="left:64px;top:64px;"></div><div class="board-dot" style="left:96px;top:64px;"></div><div class="board-dot" style="left:128px;top:64px;"></div><div class="board-dot" style="left:160px;top:64px;"></div>
+            <div class="board-dot" style="left:0;top:96px;"></div><div class="board-dot" style="left:32px;top:96px;"></div><div class="board-dot" style="left:64px;top:96px;"></div><div class="board-dot" style="left:96px;top:96px;"></div><div class="board-dot" style="left:128px;top:96px;"></div><div class="board-dot" style="left:160px;top:96px;"></div>
+            <div class="board-dot" style="left:0;top:128px;"></div><div class="board-dot" style="left:32px;top:128px;"></div><div class="board-dot" style="left:64px;top:128px;"></div><div class="board-dot" style="left:96px;top:128px;"></div><div class="board-dot" style="left:128px;top:128px;"></div><div class="board-dot" style="left:160px;top:128px;"></div>
+            <div class="board-dot" style="left:0;top:160px;"></div><div class="board-dot" style="left:32px;top:160px;"></div><div class="board-dot" style="left:64px;top:160px;"></div><div class="board-dot" style="left:96px;top:160px;"></div><div class="board-dot" style="left:128px;top:160px;"></div><div class="board-dot" style="left:160px;top:160px;"></div>
+            <!-- 打架棋子 -->
+            <div class="piece piece-black" style="left:60px;top:50px;animation:fight1 1.5s infinite alternate;"></div>
+            <div class="piece piece-white" style="left:100px;top:110px;animation:fight2 1.5s infinite alternate;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <style>
+      @keyframes fight1 { 0% { transform: translate(-50%,-50%) translateX(-12px); } 100% { transform: translate(-50%,-50%) translateX(12px); } }
+      @keyframes fight2 { 0% { transform: translate(-50%,-50%) translateX(12px); } 100% { transform: translate(-50%,-50%) translateX(-12px); } }
+    </style>
+    <!-- Slogan -->
+    <div style="font-size:14px;color:#7E756F;margin-bottom:16px;">落子布局 · 揪子博弈 · 走子决胜</div>
+    <!-- 按钮 -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:0 47px;">
+      <div style="width:100%;text-align:center;margin-bottom:-8px;"><span style="font-size:12px;color:#B0B0B0;">消耗 5 点精力</span></div>
+      <button class="btn-primary" style="gap:8px;">
+        <span style="font-size:20px;">⚔️</span> 随机匹配
+      </button>
+      <button class="btn-secondary" style="gap:8px;">
+        <span style="font-size:20px;">👥</span> 邀请好友开局
+      </button>
+    </div>
+  </div>
+
+  <!-- 个人信息卡 -->
+  <div class="card" style="position:absolute;left:16px;right:16px;top:580px;padding:14px 16px;">
+    <div class="profile-card" style="padding:0;">
+      <div class="profile-avatar">👤</div>
+      <div class="profile-info">
+        <div class="profile-name">弈者阿星</div>
+        <div class="profile-rank-badge">
+          <div class="player-rank">初级小六</div>
+        </div>
+      </div>
+      <div class="profile-stat"><div class="num">1280</div><div class="label">积分</div></div>
+      <div class="profile-stat"><div class="num">64%</div><div class="label">胜率</div></div>
+    </div>
+    <div class="energy-bar-wrap">
+      <div class="energy-bar-label">
+        <span>精力</span><span>5/30</span>
+      </div>
+      <div class="energy-bar-track"><div class="energy-bar-fill" style="width:16.7%;"></div></div>
+      <div style="text-align:right;font-size:11px;color:#7E756F;margin-top:2px;">下次恢复 ⏳ 00:45</div>
+    </div>
+  </div>
+
+  <!-- 规则入口 -->
+  <div class="rule-link" style="position:absolute;bottom:76px;width:100%;">游戏规则 ▶</div>
+
+  <!-- 底部导航 -->
+  <div class="bottom-nav">
+    <div class="nav-item active"><span class="icon">🏠</span><span class="label">首页</span></div>
+    <div class="nav-item"><span class="icon">🏆</span><span class="label">排行榜</span></div>
+    <div class="nav-item"><span class="icon">👤</span><span class="label">我的</span></div>
+  </div>
+</div>
+
+<!-- ==================== 2. 个人主页 (Profile) ==================== -->
+<div class="page" id="page-profile">
+  <div class="page-label">2. 个人主页</div>
+  <div class="top-bar" style="top:0;">
+    <span class="top-logo">六儿</span>
+    <div class="top-res"><span class="energy">⚡ 25/30</span><span class="coins">🪙 580</span></div>
+  </div>
+
+  <!-- 个人信息头部卡 (渐变) -->
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;">
+    <div style="position:absolute;top:0;left:0;width:100%;height:180px;background:linear-gradient(135deg,#544339 0%,#3C2F28 100%);padding:60px 16px 0;display:flex;align-items:center;gap:14px;">
+      <div style="width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,0.2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:36px;">👤</div>
+      <div style="flex:1;">
+        <div style="font-size:22px;font-weight:700;color:white;">弈者阿星</div>
+        <div style="display:inline-flex;align-items:center;gap:4px;margin-top:4px;background:rgba(212,168,67,0.2);padding:2px 10px;border-radius:100px;">
+          <span style="color:#D4A843;font-size:13px;font-weight:700;">🏅 初级小六</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:18px;">
+        <div style="text-align:center;"><div style="font-size:20px;font-weight:700;color:white;">1280</div><div style="font-size:11px;color:rgba(255,255,255,0.6);">积分</div></div>
+        <div style="text-align:center;"><div style="font-size:20px;font-weight:700;color:white;">64%</div><div style="font-size:11px;color:rgba(255,255,255,0.6);">胜率</div></div>
+        <div style="text-align:center;"><div style="font-size:20px;font-weight:700;color:white;">128</div><div style="font-size:11px;color:rgba(255,255,255,0.6);">场次</div></div>
+      </div>
+    </div>
+    <!-- 资源卡 -->
+    <div style="position:absolute;top:196px;left:16px;right:16px;display:flex;gap:12px;">
+      <div class="card" style="flex:1;padding:14px;">
+        <div style="font-size:11px;font-weight:600;color:#7E756F;">⚡ 精力</div>
+        <div style="font-size:16px;font-weight:700;color:#3C2F28;margin:4px 0;">25/30</div>
+        <div class="energy-bar-track" style="height:6px;"><div class="energy-bar-fill" style="width:83%;height:6px;"></div></div>
+        <div style="font-size:11px;color:#7E756F;margin-top:4px;">下次恢复 01:30</div>
+      </div>
+      <div class="card" style="flex:1;padding:14px;">
+        <div style="font-size:11px;font-weight:600;color:#7E756F;">🪙 铜板</div>
+        <div style="font-size:24px;font-weight:700;color:#D4A843;margin:8px 0;">580</div>
+        <div style="font-size:11px;color:#7E756F;">可购买精力或道具</div>
+      </div>
+    </div>
+    <!-- 每日签到 -->
+    <div class="card" style="position:absolute;top:320px;left:16px;right:16px;padding:14px;">
+      <div style="font-size:14px;font-weight:700;color:#3C2F28;margin-bottom:10px;">每日签到</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <div style="flex:1;text-align:center;padding:6px 0;background:#D4A843;border-radius:8px;font-size:12px;color:white;">一<br>✓</div>
+        <div style="flex:1;text-align:center;padding:6px 0;background:#D4A843;border-radius:8px;font-size:12px;color:white;">二<br>✓</div>
+        <div style="flex:1;text-align:center;padding:6px 0;border:1.5px dashed #D4A843;border-radius:8px;font-size:12px;color:#D4A843;">三<br>+10🪙</div>
+        <div style="flex:1;text-align:center;padding:6px 0;background:#E8E3DA;border-radius:8px;font-size:12px;color:#B0B0B0;">四</div>
+        <div style="flex:1;text-align:center;padding:6px 0;background:#E8E3DA;border-radius:8px;font-size:12px;color:#B0B0B0;">五</div>
+        <div style="flex:1;text-align:center;padding:6px 0;background:#E8E3DA;border-radius:8px;font-size:12px;color:#B0B0B0;">六</div>
+        <div style="flex:1;text-align:center;padding:6px 0;background:#E8E3DA;border-radius:8px;font-size:12px;color:#B0B0B0;">日</div>
+      </div>
+      <button class="btn-primary" style="height:36px;font-size:14px;border-radius:8px;">今日签到 +10🪙</button>
+    </div>
+    <!-- 历史战绩 -->
+    <div class="card" style="position:absolute;top:450px;left:16px;right:16px;padding:14px;">
+      <div style="font-size:14px;font-weight:700;color:#3C2F28;margin-bottom:8px;">历史战绩</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:#E8E3DA;display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>
+          <div><div style="font-size:13px;font-weight:600;color:#3C2F28;">落子无悔</div><div style="font-size:10px;color:#B0B0B0;">08-04</div></div>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#4AB86A;">胜</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid #E8E3DA;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:#E8E3DA;display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>
+          <div><div style="font-size:13px;font-weight:600;color:#3C2F28;">棋王</div><div style="font-size:10px;color:#B0B0B0;">08-03</div></div>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#D94A4A;">负</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid #E8E3DA;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:#E8E3DA;display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>
+          <div><div style="font-size:13px;font-weight:600;color:#3C2F28;">六六</div><div style="font-size:10px;color:#B0B0B0;">08-03</div></div>
+        </div>
+        <span style="font-size:14px;font-weight:700;color:#4A90D9;">和</span>
+      </div>
+      <div style="text-align:center;font-size:12px;color:#8B6914;padding-top:8px;cursor:pointer;">查看全部 ↓</div>
+    </div>
+  </div>
+
+  <!-- 底部导航 -->
+  <div class="bottom-nav">
+    <div class="nav-item"><span class="icon">🏠</span><span class="label">首页</span></div>
+    <div class="nav-item"><span class="icon">🏆</span><span class="label">排行榜</span></div>
+    <div class="nav-item active"><span class="icon">👤</span><span class="label">我的</span></div>
+  </div>
+</div>
+
+<!-- ==================== 3. 对局 — 落子阶段 (Place) ==================== -->
+<div class="page" id="page-place">
+  <div class="page-label">3. 对局 — 落子阶段</div>
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;">
+    <div class="top-bar" style="top:0;">
+      <span class="top-logo">六儿对局</span>
+      <div class="top-res"><span class="energy">⚡ 25/30</span><span class="coins">🪙 580</span></div>
+    </div>
+    <!-- 阶段标签 -->
+    <div class="phase-tag phase-place" style="top:60px;">落子阶段</div>
+    <!-- 对手信息 -->
+    <div class="card player-bar" style="position:absolute;top:103px;left:0;right:0;">
+      <div class="player-left">
+        <div class="player-avatar">👤</div>
+        <div><div class="player-name">落子无悔 (对手)</div><span class="player-rank">中级大六</span></div>
+      </div>
+      <div class="player-right">
+        <span style="font-size:12px;font-weight:600;">棋子: 00/18</span>
+        <span class="badge badge-gray">可揪: 0</span>
+        <div class="countdown-ring cd-blue">15</div><span style="font-size:11px;color:#B0B0B0;">秒</span>
+      </div>
+    </div>
+    <!-- 棋盘 -->
+    <div style="position:absolute;top:175px;left:0;width:100%;display:flex;justify-content:center;">
+      <div style="width:250px;height:250px;background:white;border-radius:16px;outline:1px solid #E8E3DA;display:flex;align-items:center;justify-content:center;">
+        <div class="board-bg">
+          <div class="board-grid">
+            <div class="board-grid-line-h" style="width:180px;top:36px;"></div><div class="board-grid-line-h" style="width:180px;top:72px;"></div><div class="board-grid-line-h" style="width:180px;top:108px;"></div><div class="board-grid-line-h" style="width:180px;top:144px;"></div>
+            <div class="board-grid-line-v" style="height:180px;left:36px;"></div><div class="board-grid-line-v" style="height:180px;left:72px;"></div><div class="board-grid-line-v" style="height:180px;left:108px;"></div><div class="board-grid-line-v" style="height:180px;left:144px;"></div>
+            <!-- 空棋盘：仅交叉点标记 -->
+            <div class="board-dot" style="left:0;top:0;"></div><div class="board-dot" style="left:36px;top:0;"></div><div class="board-dot" style="left:72px;top:0;"></div><div class="board-dot" style="left:108px;top:0;"></div><div class="board-dot" style="left:144px;top:0;"></div><div class="board-dot" style="left:180px;top:0;"></div>
+            <div class="board-dot" style="left:0;top:36px;"></div><div class="board-dot" style="left:36px;top:36px;"></div><div class="board-dot" style="left:72px;top:36px;"></div><div class="board-dot" style="left:108px;top:36px;"></div><div class="board-dot" style="left:144px;top:36px;"></div><div class="board-dot" style="left:180px;top:36px;"></div>
+            <div class="board-dot" style="left:0;top:72px;"></div><div class="board-dot" style="left:36px;top:72px;"></div><div class="board-dot" style="left:72px;top:72px;"></div><div class="board-dot" style="left:108px;top:72px;"></div><div class="board-dot" style="left:144px;top:72px;"></div><div class="board-dot" style="left:180px;top:72px;"></div>
+            <div class="board-dot" style="left:0;top:108px;"></div><div class="board-dot" style="left:36px;top:108px;"></div><div class="board-dot" style="left:72px;top:108px;"></div><div class="board-dot" style="left:108px;top:108px;"></div><div class="board-dot" style="left:144px;top:108px;"></div><div class="board-dot" style="left:180px;top:108px;"></div>
+            <div class="board-dot" style="left:0;top:144px;"></div><div class="board-dot" style="left:36px;top:144px;"></div><div class="board-dot" style="left:72px;top:144px;"></div><div class="board-dot" style="left:108px;top:144px;"></div><div class="board-dot" style="left:144px;top:144px;"></div><div class="board-dot" style="left:180px;top:144px;"></div>
+            <div class="board-dot" style="left:0;top:180px;"></div><div class="board-dot" style="left:36px;top:180px;"></div><div class="board-dot" style="left:72px;top:180px;"></div><div class="board-dot" style="left:108px;top:180px;"></div><div class="board-dot" style="left:144px;top:180px;"></div><div class="board-dot" style="left:180px;top:180px;"></div>
+          </div>
+          <!-- 坐标 -->
+          <div class="board-coords"><span style="left:0;top:0;">(0,5)</span><span style="left:206px;top:0;">(5,5)</span><span style="left:0;top:206px;">(0,0)</span><span style="left:206px;top:206px;">(5,0)</span></div>
+        </div>
+      </div>
+    </div>
+    <!-- 己方信息 -->
+    <div class="card player-bar" style="position:absolute;top:441px;left:0;right:0;">
+      <div class="player-left">
+        <div class="player-avatar">👤</div>
+        <div><div class="player-name">弈者阿星 (你)</div><span class="player-rank">初级小六</span></div>
+      </div>
+      <div class="player-right">
+        <span style="font-size:12px;font-weight:600;">棋子: 00/18</span>
+        <span class="badge badge-gray">可揪: 0</span>
+        <div class="countdown-ring cd-blue">15</div><span style="font-size:11px;color:#B0B0B0;">秒</span>
+      </div>
+    </div>
+  </div>
+  <!-- 操作按钮 -->
+  <div class="action-bar" style="position:absolute;bottom:60px;left:0;right:0;">
+    <button class="btn-ghost" style="flex:1;">认输</button>
+    <button class="btn-ghost" style="flex:1;border-color:#8B6914;color:#8B6914;">求和</button>
+    <button class="btn-ghost" style="flex:1;">设置 ▼</button>
+  </div>
+</div>
+
+<!-- ==================== 4. 对局 — 揪子阶段 (Capture) ==================== -->
+<div class="page" id="page-capture">
+  <div class="page-label">4. 对局 — 揪子阶段</div>
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;">
+    <div class="top-bar" style="top:0;">
+      <span class="top-logo">六儿对局</span>
+      <div class="top-res"><span class="energy">⚡ 25/30</span><span class="coins">🪙 580</span></div>
+    </div>
+    <div class="phase-tag phase-capture" style="top:60px;">揪子阶段</div>
+    <!-- 对手信息：有2个可揪 -->
+    <div class="card player-bar" style="position:absolute;top:103px;left:0;right:0;">
+      <div class="player-left">
+        <div class="player-avatar">👤</div>
+        <div><div class="player-name">落子无悔 (对手)</div><span class="player-rank">中级大六</span></div>
+      </div>
+      <div class="player-right">
+        <span class="badge badge-red">可揪: 2</span>
+        <div class="countdown-ring cd-red">9</div><span style="font-size:11px;color:#B0B0B0;">秒</span>
+      </div>
+    </div>
+    <!-- 棋盘：有棋子带状态 -->
+    <div style="position:absolute;top:175px;left:0;width:100%;display:flex;justify-content:center;">
+      <div style="width:250px;height:250px;background:white;border-radius:16px;outline:1px solid #E8E3DA;display:flex;align-items:center;justify-content:center;">
+        <div class="board-bg">
+          <div class="board-grid">
+            <div class="board-grid-line-h" style="width:180px;top:36px;"></div><div class="board-grid-line-h" style="width:180px;top:72px;"></div><div class="board-grid-line-h" style="width:180px;top:108px;"></div><div class="board-grid-line-h" style="width:180px;top:144px;"></div>
+            <div class="board-grid-line-v" style="height:180px;left:36px;"></div><div class="board-grid-line-v" style="height:180px;left:72px;"></div><div class="board-grid-line-v" style="height:180px;left:108px;"></div><div class="board-grid-line-v" style="height:180px;left:144px;"></div>
+            <div class="board-dot" style="left:0;top:0;"></div><div class="board-dot" style="left:36px;top:0;"></div><div class="board-dot" style="left:72px;top:0;"></div><div class="board-dot" style="left:108px;top:0;"></div><div class="board-dot" style="left:144px;top:0;"></div><div class="board-dot" style="left:180px;top:0;"></div>
+            <div class="board-dot" style="left:0;top:36px;"></div><div class="board-dot" style="left:36px;top:36px;"></div><div class="board-dot" style="left:72px;top:36px;"></div><div class="board-dot" style="left:108px;top:36px;"></div><div class="board-dot" style="left:144px;top:36px;"></div><div class="board-dot" style="left:180px;top:36px;"></div>
+            <div class="board-dot" style="left:0;top:72px;"></div><div class="board-dot" style="left:36px;top:72px;"></div><div class="board-dot" style="left:72px;top:72px;"></div><div class="board-dot" style="left:108px;top:72px;"></div><div class="board-dot" style="left:144px;top:72px;"></div><div class="board-dot" style="left:180px;top:72px;"></div>
+            <div class="board-dot" style="left:0;top:108px;"></div><div class="board-dot" style="left:36px;top:108px;"></div><div class="board-dot" style="left:72px;top:108px;"></div><div class="board-dot" style="left:108px;top:108px;"></div><div class="board-dot" style="left:144px;top:108px;"></div><div class="board-dot" style="left:180px;top:108px;"></div>
+            <div class="board-dot" style="left:0;top:144px;"></div><div class="board-dot" style="left:36px;top:144px;"></div><div class="board-dot" style="left:72px;top:144px;"></div><div class="board-dot" style="left:108px;top:144px;"></div><div class="board-dot" style="left:144px;top:144px;"></div><div class="board-dot" style="left:180px;top:144px;"></div>
+            <div class="board-dot" style="left:0;top:180px;"></div><div class="board-dot" style="left:36px;top:180px;"></div><div class="board-dot" style="left:72px;top:180px;"></div><div class="board-dot" style="left:108px;top:180px;"></div><div class="board-dot" style="left:144px;top:180px;"></div><div class="board-dot" style="left:180px;top:180px;"></div>
+            <!-- 棋子：白色不可揪（成型），黑色散落棋子可揪 -->
+            <div class="piece piece-white" style="left:0px;top:0px;"></div>
+            <div class="piece piece-white" style="left:36px;top:36px;"></div>
+            <div class="piece piece-white" style="left:72px;top:36px;"></div>
+            <div class="piece piece-white" style="left:108px;top:72px;"></div>
+            <div class="piece piece-black piece-capturable" style="left:72px;top:108px;"></div>
+            <div class="piece piece-black piece-capturable" style="left:144px;top:144px;"></div>
+            <div class="piece piece-black" style="left:108px;top:144px;"></div>
+            <div class="piece piece-black" style="left:180px;top:180px;"></div>
+            <!-- 选定棋子 -->
+            <div class="piece piece-black piece-selected" style="left:72px;top:108px;"></div>
+          </div>
+          <div class="board-coords"><span style="left:0;top:0;">(0,5)</span><span style="left:206px;top:0;">(5,5)</span><span style="left:0;top:206px;">(0,0)</span><span style="left:206px;top:206px;">(5,0)</span></div>
+        </div>
+      </div>
+    </div>
+    <!-- 己方信息 -->
+    <div class="card player-bar" style="position:absolute;top:441px;left:0;right:0;">
+      <div class="player-left">
+        <div class="player-avatar">👤</div>
+        <div><div class="player-name">弈者阿星 (你)</div><span class="player-rank">初级小六</span></div>
+      </div>
+      <div class="player-right">
+        <span style="font-size:12px;font-weight:600;">棋子: 12/18</span>
+        <span class="badge badge-gray">可揪: 0</span>
+        <div class="countdown-ring cd-red">14</div><span style="font-size:11px;color:#B0B0B0;">秒</span>
+      </div>
+    </div>
+  </div>
+  <div class="action-bar" style="position:absolute;bottom:60px;left:0;right:0;">
+    <button class="btn-ghost" style="flex:1;">认输</button>
+    <button class="btn-ghost" style="flex:1;border-color:#8B6914;color:#8B6914;">求和</button>
+    <button class="btn-ghost" style="flex:1;">设置 ▼</button>
+  </div>
+  <!-- 揪子确认弹窗 -->
+  <div class="modal-overlay" style="opacity:0.6;background:rgba(0,0,0,0.6);"></div>
+  <div style="position:absolute;z-index:21;left:16px;right:16px;top:260px;height:56px;background:rgba(60,47,40,0.93);box-shadow:0 4px 8px rgba(0,0,0,0.35);border-radius:12px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;">
+    <span style="color:white;font-size:14px;font-weight:600;">揪掉这颗棋子？</span>
+    <div style="display:flex;gap:12px;">
+      <button style="background:#D94A4A;color:white;border:none;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:700;">确认揪子</button>
+      <button style="background:transparent;color:white;border:1px solid #B0B0B0;border-radius:6px;padding:8px 12px;font-size:12px;font-weight:600;">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 5. 对局 — 走子阶段 (Move) ==================== -->
+<div class="page" id="page-move">
+  <div class="page-label">5. 对局 — 走子阶段</div>
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;">
+    <div class="top-bar" style="top:0;">
+      <span class="top-logo">六儿对局</span>
+      <div class="top-res"><span class="energy">⚡ 25/30</span><span class="coins">🪙 580</span></div>
+    </div>
+    <div class="phase-tag phase-move" style="top:60px;">走子阶段</div>
+    <div class="card player-bar" style="position:absolute;top:103px;left:0;right:0;">
+      <div class="player-left">
+        <div class="player-avatar">👤</div>
+        <div><div class="player-name">落子无悔 (对手)</div><span class="player-rank">中级大六</span></div>
+      </div>
+      <div class="player-right">
+        <span class="badge badge-gray">可揪: 0</span>
+        <div class="countdown-ring cd-green">15</div><span style="font-size:11px;color:#B0B0B0;">秒</span>
+      </div>
+    </div>
+    <div style="position:absolute;top:175px;left:0;width:100%;display:flex;justify-content:center;">
+      <div style="width:250px;height:250px;background:white;border-radius:16px;outline:1px solid #E8E3DA;display:flex;align-items:center;justify-content:center;">
+        <div class="board-bg">
+          <div class="board-grid">
+            <div class="board-grid-line-h" style="width:180px;top:36px;"></div><div class="board-grid-line-h" style="width:180px;top:72px;"></div><div class="board-grid-line-h" style="width:180px;top:108px;"></div><div class="board-grid-line-h" style="width:180px;top:144px;"></div>
+            <div class="board-grid-line-v" style="height:180px;left:36px;"></div><div class="board-grid-line-v" style="height:180px;left:72px;"></div><div class="board-grid-line-v" style="height:180px;left:108px;"></div><div class="board-grid-line-v" style="height:180px;left:144px;"></div>
+            <div class="board-dot" style="left:0;top:0;"></div><div class="board-dot" style="left:36px;top:0;"></div><div class="board-dot" style="left:72px;top:0;"></div><div class="board-dot" style="left:108px;top:0;"></div><div class="board-dot" style="left:144px;top:0;"></div><div class="board-dot" style="left:180px;top:0;"></div>
+            <div class="board-dot" style="left:0;top:36px;"></div><div class="board-dot" style="left:36px;top:36px;"></div><div class="board-dot" style="left:72px;top:36px;"></div><div class="board-dot" style="left:108px;top:36px;"></div><div class="board-dot" style="left:144px;top:36px;"></div><div class="board-dot" style="left:180px;top:36px;"></div>
+            <div class="board-dot" style="left:0;top:72px;"></div><div class="board-dot" style="left:36px;top:72px;"></div><div class="board-dot" style="left:72px;top:72px;"></div><div class="board-dot" style="left:108px;top:72px;"></div><div class="board-dot" style="left:144px;top:72px;"></div><div class="board-dot" style="left:180px;top:72px;"></div>
+            <div class="board-dot" style="left:0;top:108px;"></div><div class="board-dot" style="left:36px;top:108px;"></div><div class="board-dot" style="left:72px;top:108px;"></div><div class="board-dot" style="left:108px;top:108px;"></div><div class="board-dot" style="left:144px;top:108px;"></div><div class="board-dot" style="left:180px;top:108px;"></div>
+            <div class="board-dot" style="left:0;top:144px;"></div><div class="board-dot" style="left:36px;top:144px;"></div><div class="board-dot" style="left:72px;top:144px;"></div><div class="board-dot" style="left:108px;top:144px;"></div><div class="board-dot" style="left:144px;top:144px;"></div><div class="board-dot" style="left:180px;top:144px;"></div>
+            <div class="board-dot" style="left:0;top:180px;"></div><div class="board-dot" style="left:36px;top:180px;"></div><div class="board-dot" style="left:72px;top:180px;"></div><div class="board-dot" style="left:108px;top:180px;"></div><div class="board-dot" style="left:144px;top:180px;"></div><div class="board-dot" style="left:180px;top:180px;"></div>
+            <!-- 走子阶段棋子：绿色高亮 -->
+            <div class="piece piece-white" style="left:36px;top:36px;"></div>
+            <div class="piece piece-white" style="left:72px;top:36px;"></div>
+            <div class="piece piece-white" style="left:108px;top:72px;"></div>
+            <div class="piece piece-white" style="left:144px;top:144px;"></div>
+            <div class="piece piece-black" style="left:108px;top:108px;"></div>
+            <div class="piece piece-black" style="left:144px;top:144px;"></div>
+            <div class="piece piece-black" style="left:72px;top:108px;"></div>
+            <div class="piece piece-black piece-selected" style="left:108px;top:108px;box-shadow: 0 0 0 3px #4AB86A, 0 2px 6px rgba(0,0,0,0.25);"></div>
+            <div class="piece piece-black" style="left:36px;top:108px;"></div>
+            <div class="piece piece-white" style="left:108px;top:36px;"></div>
+          </div>
+          <div class="board-coords"><span style="left:0;top:0;">(0,5)</span><span style="left:206px;top:0;">(5,5)</span><span style="left:0;top:206px;">(0,0)</span><span style="left:206px;top:206px;">(5,0)</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card player-bar" style="position:absolute;top:441px;left:0;right:0;">
+      <div class="player-left">
+        <div class="player-avatar">👤</div>
+        <div><div class="player-name">弈者阿星 (你)</div><span class="player-rank">初级小六</span></div>
+      </div>
+      <div class="player-right">
+        <span style="font-size:12px;font-weight:600;">剩余棋子: 10/18</span>
+        <span class="badge badge-gray">可揪: 0</span>
+        <div class="countdown-ring cd-green">8</div><span style="font-size:11px;color:#B0B0B0;">秒</span>
+      </div>
+    </div>
+  </div>
+  <div class="action-bar" style="position:absolute;bottom:60px;left:0;right:0;">
+    <button class="btn-ghost" style="flex:1;">认输</button>
+    <button class="btn-ghost" style="flex:1;border-color:#8B6914;color:#8B6914;">求和</button>
+    <button class="btn-ghost" style="flex:1;">设置 ▼</button>
+  </div>
+</div>
+
+<!-- ==================== 6. 棋盘组件详情 (Board Component) ==================== -->
+<div class="page" id="page-board-detail">
+  <div class="page-label">6. 棋盘组件详情</div>
+  <div style="display:flex;flex-direction:column;align-items:center;padding:24px 16px;">
+    <div style="font-size:16px;font-weight:700;color:#3C2F28;margin-bottom:16px;">棋盘组件说明</div>
+    <!-- 棋盘 -->
+    <div style="width:290px;height:290px;background:white;border-radius:16px;outline:1px solid #E8E3DA;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
+      <div class="board-bg" style="width:250px;height:250px;">
+        <div class="board-grid" style="width:180px;height:180px;left:35px;top:35px;">
+          <div class="board-grid-line-h" style="width:180px;top:36px;"></div><div class="board-grid-line-h" style="width:180px;top:72px;"></div><div class="board-grid-line-h" style="width:180px;top:108px;"></div><div class="board-grid-line-h" style="width:180px;top:144px;"></div>
+          <div class="board-grid-line-v" style="height:180px;left:36px;"></div><div class="board-grid-line-v" style="height:180px;left:72px;"></div><div class="board-grid-line-v" style="height:180px;left:108px;"></div><div class="board-grid-line-v" style="height:180px;left:144px;"></div>
+          <div class="board-dot" style="left:0;top:0;"></div><div class="board-dot" style="left:36px;top:0;"></div><div class="board-dot" style="left:72px;top:0;"></div><div class="board-dot" style="left:108px;top:0;"></div><div class="board-dot" style="left:144px;top:0;"></div><div class="board-dot" style="left:180px;top:0;"></div>
+          <div class="board-dot" style="left:0;top:36px;"></div><div class="board-dot" style="left:36px;top:36px;"></div><div class="board-dot" style="left:72px;top:36px;"></div><div class="board-dot" style="left:108px;top:36px;"></div><div class="board-dot" style="left:144px;top:36px;"></div><div class="board-dot" style="left:180px;top:36px;"></div>
+          <div class="board-dot" style="left:0;top:72px;"></div><div class="board-dot" style="left:36px;top:72px;"></div><div class="board-dot" style="left:72px;top:72px;"></div><div class="board-dot" style="left:108px;top:72px;"></div><div class="board-dot" style="left:144px;top:72px;"></div><div class="board-dot" style="left:180px;top:72px;"></div>
+          <div class="board-dot" style="left:0;top:108px;"></div><div class="board-dot" style="left:36px;top:108px;"></div><div class="board-dot" style="left:72px;top:108px;"></div><div class="board-dot" style="left:108px;top:108px;"></div><div class="board-dot" style="left:144px;top:108px;"></div><div class="board-dot" style="left:180px;top:108px;"></div>
+          <div class="board-dot" style="left:0;top:144px;"></div><div class="board-dot" style="left:36px;top:144px;"></div><div class="board-dot" style="left:72px;top:144px;"></div><div class="board-dot" style="left:108px;top:144px;"></div><div class="board-dot" style="left:144px;top:144px;"></div><div class="board-dot" style="left:180px;top:144px;"></div>
+          <div class="board-dot" style="left:0;top:180px;"></div><div class="board-dot" style="left:36px;top:180px;"></div><div class="board-dot" style="left:72px;top:180px;"></div><div class="board-dot" style="left:108px;top:180px;"></div><div class="board-dot" style="left:144px;top:180px;"></div><div class="board-dot" style="left:180px;top:180px;"></div>
+          <!-- 四种棋子状态示例 -->
+          <div class="piece piece-black" style="left:36px;top:36px;"></div>
+          <div style="position:absolute;left:24px;top:56px;font-size:9px;color:#3C2F28;">普通</div>
+          <div class="piece piece-white piece-selected" style="left:108px;top:36px;"></div>
+          <div style="position:absolute;left:90px;top:56px;font-size:9px;color:#D4A843;">选中</div>
+          <div class="piece piece-black piece-capturable" style="left:36px;top:108px;"></div>
+          <div style="position:absolute;left:24px;top:128px;font-size:9px;color:#D94A4A;">可揪</div>
+          <div class="piece piece-white" style="left:108px;top:108px;"></div>
+          <div style="position:absolute;left:90px;top:128px;font-size:9px;color:#3C2F28;display:flex;align-items:center;gap:2px;">成型🔒</div>
+        </div>
+        <div class="board-coords"><span style="left:0;top:0;">(0,5)</span><span style="left:234px;top:0;">(5,5)</span><span style="left:0;top:234px;">(0,0)</span><span style="left:234px;top:234px;">(5,0)</span></div>
+      </div>
+    </div>
+    <!-- 图例 -->
+    <div class="card" style="width:100%;padding:12px 16px;">
+      <div style="font-size:14px;font-weight:700;color:#3C2F28;margin-bottom:8px;">棋子状态说明</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#3C2F28;">
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:16px;height:16px;border-radius:50%;background:#1A1A1A;"></div> 普通黑棋</div>
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:16px;height:16px;border-radius:50%;background:white;border:1px solid #D0D0D0;"></div> 普通白棋</div>
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:16px;height:16px;border-radius:50%;border:2px solid #D4A843;"></div> 选中态</div>
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:16px;height:16px;border-radius:50%;border:2px solid #D94A4A;"></div> 可揪态</div>
+        <div style="display:flex;align-items:center;gap:6px;">🔒 成型(不可揪)</div>
+      </div>
+    </div>
+    <div class="card" style="width:100%;padding:12px 16px;margin-top:8px;">
+      <div style="font-size:14px;font-weight:700;color:#3C2F28;margin-bottom:8px;">棋盘规格</div>
+      <div style="font-size:12px;color:#7E756F;line-height:1.8;">
+        6行×6列=36交叉点 | 每方最多18颗 | 线宽1.5px | 棋子φ28px<br>
+        坐标范围(0,0)~(5,5) | 棋盘线闭合，不外延
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 7. 结算 — 胜利 (Victory) ==================== -->
+<div class="page" id="page-settle-win">
+  <div class="page-label">7. 结算 — 胜利</div>
+  <!-- 模拟对手/棋盘/己方布局 -->
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;opacity:0.3;">
+    <div class="top-bar" style="top:0;"><span class="top-logo">六儿对局</span></div>
+    <div class="card player-bar" style="position:absolute;top:103px;">对手信息</div>
+    <div style="position:absolute;top:175px;width:100%;text-align:center;">棋盘区域</div>
+    <div class="card player-bar" style="position:absolute;top:441px;">己方信息</div>
+  </div>
+  <!-- 结算弹窗 -->
+  <div class="modal-overlay"></div>
+  <div class="modal-card" style="left:11px;top:165px;width:353px;padding:36px 24px 24px;text-align:center;">
+    <div class="settle-title win">🎉 胜利 !</div>
+    <div class="settle-subtitle">大获全胜</div>
+    <div class="settle-score win" style="margin-top:16px;">+3</div>
+    <div class="settle-detail" style="margin-top:16px;">
+      <div style="text-align:left;font-size:12px;color:#7E756F;margin-bottom:4px;">战绩详情</div>
+      <div class="settle-row"><span>净胜棋子</span><span style="font-weight:700;">3</span></div>
+      <div class="settle-row"><span>胜利积分</span><span style="font-weight:700;color:#4AB86A;">+3</span></div>
+      <div class="settle-row"><span>连胜追加</span><span style="font-weight:700;color:#4AB86A;">+1</span></div>
+    </div>
+    <!-- 段位进度 -->
+    <div class="rank-progress">
+      <div class="rank-progress-header"><span>初级小六</span><span>68/100</span></div>
+      <div class="rank-progress-track"><div class="rank-progress-fill" style="width:68%;"></div></div>
+    </div>
+    <!-- 按钮 -->
+    <div style="display:flex;gap:12px;margin-top:16px;">
+      <button class="btn-primary" style="flex:1;height:42px;font-size:14px;">再来一局</button>
+      <button class="btn-secondary" style="flex:1;height:42px;font-size:14px;">返回大厅</button>
+    </div>
+    <button class="btn-ghost" style="width:100%;height:42px;margin-top:8px;font-size:14px;border:none;background:transparent;color:#8B6914;">分享战绩</button>
+  </div>
+</div>
+
+<!-- ==================== 8. 结算 — 失败 (Defeat) ==================== -->
+<div class="page" id="page-settle-lose">
+  <div class="page-label">8. 结算 — 失败</div>
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;opacity:0.3;">
+    <div class="top-bar" style="top:0;"><span class="top-logo">六儿对局</span></div>
+    <div class="card player-bar" style="position:absolute;top:103px;">对手信息</div>
+    <div style="position:absolute;top:175px;width:100%;text-align:center;">棋盘区域</div>
+    <div class="card player-bar" style="position:absolute;top:441px;">己方信息</div>
+  </div>
+  <div class="modal-overlay"></div>
+  <div class="modal-card" style="left:11px;top:165px;width:353px;padding:36px 24px 24px;text-align:center;">
+    <div class="settle-title lose">败北</div>
+    <div class="settle-subtitle">再接再厉</div>
+    <div class="settle-score lose" style="margin-top:16px;">-3</div>
+    <div class="settle-detail" style="margin-top:16px;">
+      <div style="text-align:left;font-size:12px;color:#7E756F;margin-bottom:4px;">战绩详情</div>
+      <div class="settle-row"><span>净输棋子</span><span style="font-weight:700;">2</span></div>
+      <div class="settle-row"><span>失败扣分</span><span style="font-weight:700;color:#D94A4A;">-3</span></div>
+    </div>
+    <div class="rank-progress">
+      <div class="rank-progress-header"><span>初级小六</span><span>65/100</span></div>
+      <div class="rank-progress-track"><div class="rank-progress-fill" style="width:65%;"></div></div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:16px;">
+      <button class="btn-primary" style="flex:1;height:42px;font-size:14px;">再来一局</button>
+      <button class="btn-secondary" style="flex:1;height:42px;font-size:14px;">返回大厅</button>
+    </div>
+    <button class="btn-ghost" style="width:100%;height:42px;margin-top:8px;font-size:14px;border:none;background:transparent;color:#8B6914;">分享战绩</button>
+  </div>
+</div>
+
+<!-- ==================== 9. 结算 — 和棋 (Draw) ==================== -->
+<div class="page" id="page-settle-draw">
+  <div class="page-label">9. 结算 — 和棋</div>
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;opacity:0.3;">
+    <div class="top-bar" style="top:0;"><span class="top-logo">六儿对局</span></div>
+    <div class="card player-bar" style="position:absolute;top:103px;">对手信息</div>
+    <div style="position:absolute;top:175px;width:100%;text-align:center;">棋盘区域</div>
+    <div class="card player-bar" style="position:absolute;top:441px;">己方信息</div>
+  </div>
+  <div class="modal-overlay"></div>
+  <div class="modal-card" style="left:11px;top:209px;width:353px;padding:36px 24px 24px;text-align:center;">
+    <div class="settle-title draw">🤝 握手言和</div>
+    <div class="settle-subtitle">势均力敌</div>
+    <div class="settle-score draw" style="margin-top:16px;">双方各扣 1 积分</div>
+    <div class="settle-detail" style="margin-top:16px;">
+      <div style="text-align:left;font-size:12px;color:#7E756F;margin-bottom:4px;">和棋原因</div>
+      <div style="font-size:13px;color:#3C2F28;text-align:left;">双方同意求和</div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:16px;">
+      <button class="btn-primary" style="flex:1;height:42px;font-size:14px;">再来一局</button>
+      <button class="btn-secondary" style="flex:1;height:42px;font-size:14px;">返回大厅</button>
+    </div>
+    <button class="btn-ghost" style="width:100%;height:42px;margin-top:8px;font-size:14px;border:none;background:transparent;color:#8B6914;">分享战绩</button>
+  </div>
+</div>
+
+<!-- ==================== 10. 求和弹窗 ==================== -->
+<div class="page" id="page-draw-request">
+  <div class="page-label">10. 求和交互弹窗</div>
+  <!-- 发起求和 -->
+  <div style="position:absolute;top:0;left:0;width:100%;height:497px;opacity:0.4;">
+    <div class="top-bar" style="top:0;"><span class="top-logo">六儿对局</span></div>
+    <div class="card player-bar" style="position:absolute;top:103px;">对手信息</div>
+    <div style="position:absolute;top:175px;width:100%;text-align:center;">棋盘</div>
+    <div class="card player-bar" style="position:absolute;top:441px;">己方信息</div>
+  </div>
+  <!-- 我方发起确认 -->
+  <div class="modal-overlay"></div>
+  <div class="modal-card" style="left:11px;bottom:30px;top:414px;width:353px;padding:20px 24px;">
+    <div style="font-size:18px;font-weight:700;color:#3C2F28;text-align:center;">向对手求和？</div>
+    <div style="font-size:13px;color:#7E756F;text-align:center;margin:8px 0 16px;">发起求和将扣除 1 积分</div>
+    <div style="display:flex;gap:12px;">
+      <button class="btn-primary" style="flex:1;height:42px;font-size:14px;background:#3C2F28;">确认求和</button>
+      <button class="btn-secondary" style="flex:1;height:42px;font-size:14px;border-color:#D94A4A;color:#D94A4A;">取消</button>
+    </div>
+  </div>
+  <!-- 收到求和（顶部） -->
+  <div class="card" style="position:absolute;z-index:21;left:16px;right:16px;top:60px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 16px rgba(0,0,0,0.15);">
+    <div>
+      <div style="font-size:14px;font-weight:700;color:#3C2F28;">对手请求和棋</div>
+      <div style="font-size:12px;color:#7E756F;">10s 后自动拒绝</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button style="background:#4AB86A;color:white;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:700;">同意</button>
+      <button style="background:#D94A4A;color:white;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:700;">拒绝</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 11. 通用弹窗组件 ==================== -->
+<div class="page" id="page-modals" style="height:auto;min-height:812px;background:white;">
+  <div class="page-label">11. 通用弹窗组件</div>
+  <div style="padding:24px 16px;">
+
+    <!-- 弹窗1：精力不足 -->
+    <div class="popup-item">
+      <div class="popup-label">1. 精力不足弹窗</div>
+      <div style="text-align:center;padding:8px 0;">
+        <div style="font-size:18px;font-weight:700;color:#3C2F28;">⚡ 精力不足</div>
+        <div style="font-size:14px;color:#3C2F28;margin:8px 0;">当前精力 2/30</div>
+        <div style="font-size:12px;color:#7E756F;margin-bottom:16px;">开局需要 5 点精力</div>
+      </div>
+      <button class="btn-primary" style="height:42px;font-size:14px;margin-bottom:8px;">🎬 看广告 +10精力 (20🪙)</button>
+      <button class="btn-secondary" style="height:42px;font-size:14px;margin-bottom:8px;">🪙 30铜板购买10精力</button>
+      <div style="text-align:center;font-size:12px;color:#B0B0B0;padding:8px 0;">⏳ 1分30秒后自动恢复</div>
+    </div>
+
+    <!-- 弹窗2：设置 -->
+    <div class="popup-item">
+      <div class="popup-label">2. 设置弹窗</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;">
+        <span style="font-size:15px;color:#3C2F28;">音效</span>
+        <div style="width:44px;height:24px;background:#8B6914;border-radius:100px;position:relative;">
+          <div style="position:absolute;right:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #E8E3DA;">
+        <span style="font-size:15px;color:#3C2F28;">震动反馈</span>
+        <div style="width:44px;height:24px;background:#8B6914;border-radius:100px;position:relative;">
+          <div style="position:absolute;right:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #E8E3DA;">
+        <span style="font-size:15px;color:#3C2F28;">音乐</span>
+        <div style="width:44px;height:24px;background:#B0B0B0;border-radius:100px;position:relative;">
+          <div style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;"></div>
+        </div>
+      </div>
+      <div style="text-align:center;padding-top:12px;border-top:1px solid #E8E3DA;">
+        <span style="font-size:14px;color:#D94A4A;cursor:pointer;">退出登录</span>
+      </div>
+    </div>
+
+    <!-- 弹窗3：获得铜板 -->
+    <div class="popup-item">
+      <div class="popup-label">3. 获得铜板提示</div>
+      <div style="text-align:center;padding:16px 0;">
+        <div style="font-size:48px;animation:bounce 0.5s;">🪙</div>
+        <div style="font-size:28px;font-weight:700;color:#D4A843;margin:8px 0;">+20</div>
+        <div style="font-size:14px;color:#7E756F;">观看广告获得</div>
+      </div>
+    </div>
+
+    <!-- 弹窗4：段位晋升 -->
+    <div class="popup-item">
+      <div class="popup-label">4. 段位晋升动画</div>
+      <div style="text-align:center;padding:16px 0;background:linear-gradient(135deg,rgba(212,168,67,0.05) 0%,rgba(212,168,67,0.1) 100%);border-radius:8px;">
+        <div style="font-size:40px;">🏅</div>
+        <div style="font-size:22px;font-weight:700;color:#D4A843;margin:8px 0;">恭喜晋升！</div>
+        <div style="font-size:16px;font-weight:700;color:#3C2F28;">中级小六</div>
+        <div style="font-size:12px;color:#7E756F;margin-top:4px;">初级小六 → 中级小六</div>
+        <div style="display:inline-flex;align-items:center;gap:4px;margin-top:8px;background:rgba(212,168,67,0.15);padding:4px 12px;border-radius:100px;">
+          <span style="font-size:13px;color:#8B6914;">🎁 获得 50 🪙</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</div>
+</body>
+</html>

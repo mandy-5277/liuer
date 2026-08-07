@@ -1,0 +1,38 @@
+/* components/bottom-nav/bottom-nav.wxss */
+.bottom-nav {
+  width: 100%;
+  height: 152rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 64rpx;
+  background: var(--color-bg);
+  border-top: 2rpx solid var(--color-border);
+  box-sizing: border-box;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  z-index: 100;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+}
+
+.nav-icon {
+  font-size: 40rpx;
+}
+
+.nav-label {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--color-text-light);
+}
+
+.nav-item.active .nav-label {
+  color: var(--color-primary);
+}

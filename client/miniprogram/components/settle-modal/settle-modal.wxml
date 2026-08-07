@@ -1,0 +1,51 @@
+<!-- components/settle-modal/settle-modal.wxml - 结算弹窗 -->
+<view class="modal" wx:if="{{visible}}" catchtouchmove="noop">
+  <view class="modal-overlay"></view>
+  <view class="settle-card card">
+    <!-- 胜利 -->
+    <block wx:if="{{result === 'win'}}">
+      <view class="settle-title win">胜利！</view>
+      <view class="settle-subtitle">{{winSubtitle}}</view>
+      <view class="settle-score win">+{{score}} 积分</view>
+    </block>
+    <!-- 失败 -->
+    <block wx:elif="{{result === 'lose'}}">
+      <view class="settle-title lose">败北</view>
+      <view class="settle-subtitle">{{loseSubtitle}}</view>
+      <view class="settle-score lose">{{score}} 积分</view>
+    </block>
+    <!-- 和棋 -->
+    <block wx:else>
+      <view class="settle-title draw">握手言和</view>
+      <view class="settle-subtitle">{{drawSubtitle}}</view>
+      <view class="settle-score draw">{{scoreText}}</view>
+    </block>
+
+    <!-- 战绩详情 -->
+    <view class="settle-detail" wx:if="{{details && details.length}}">
+      <text class="detail-header">战绩详情</text>
+      <view class="settle-row" wx:for="{{details}}" wx:key="label">
+        <text>{{item.label}}</text>
+        <text class="settle-row-value" style="color: {{item.highlight ? '#4AB86A' : '#3C2F28'}};">{{item.value}}</text>
+      </view>
+    </view>
+
+    <!-- 段位进度 -->
+    <view class="rank-progress" wx:if="{{rankScore >= 0}}">
+      <view class="rank-progress-header">
+        <text>{{rankName}}</text>
+        <text>{{rankScore}}/100</text>
+      </view>
+      <view class="rank-progress-track">
+        <view class="rank-progress-fill" style="width: {{rankScore}}%;"></view>
+      </view>
+    </view>
+
+    <!-- 按钮 -->
+    <view class="settle-btns">
+      <button class="btn-primary" style="flex:1;height:84rpx;font-size:28rpx;" bindtap="onRematch">再来一局</button>
+      <button class="btn-secondary" style="flex:1;height:84rpx;font-size:28rpx;" bindtap="onGoHome">返回大厅</button>
+    </view>
+    <button class="btn-share" bindtap="onShare">分享战绩</button>
+  </view>
+</view>

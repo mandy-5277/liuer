@@ -1,0 +1,534 @@
+/**
+ * 数据服务层（MySQL + Redis 实现）
+ * 接口签名与原 CloudBase 版完全一致，仅底层存储切换。
+ * - MySQL：持久化（users / games / transactions / rooms）
+ * - Redis：内存态（匹配队列 / 房间 / 对局 / 掉线缓存）
+ *
+ * 注意：房间对局期间的实时状态仍在 Redis（性能），仅结算时落 MySQL。
+ */
+
+const { pool } = require('../db/mysql');
+const redis = require('../db/redis');
+
+// 内存态 Key 前缀
+const K = {
+  queue: 'liuer:queue',          // 匹配队列（list，存 openid）
+  room: 'liuer:room:',           // room:<roomId>
+  game: 'liuer:game:',           // game:<gameId>
+  offline: 'liuer:offline:',     // offline:<openid>
+};
+
+// ============ 用户 ============
+
+async function getOrCreateUser(openid, userInfo = {}) {
+  const [rows] = await pool.query('SELECT * FROM users WHERE openid = ?', [openid]);
+  if (rows.length > 0) {
+    const u = rows[0];
+    return {
+      openid: u.openid,
+      unionid: u.unionid,
+      nickName: u.nickName,
+      avatarUrl: u.avatarUrl,
+      rankScore: u.rankScore,
+      rankName: u.rankName,
+      energy: u.energy,
+      copper: u.copper,
+      dailyCopper: u.dailyCopper,
+      lastCheckin: u.lastCheckin,
+      lastDailyReset: u.lastDailyReset,
+      winCount: u.winCount,
+      loseCount: u.loseCount,
+      drawCount: u.drawCount,
+      settings: u.settings ? (typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings) : {},
+      createTime: u.createTime,
+    };
+  }
+
+  const nickName = userInfo.nickName || '';
+  const avatarUrl = userInfo.avatarUrl || '';
+  const unionid = userInfo.unionid || null;
+  const rankScore = 1000;
+  const rankName = '初级小六';
+
+  await pool.query(
+    `INSERT INTO users (openid, unionid, nickName, avatarUrl, rankScore, rankName)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [openid, unionid, nickName, avatarUrl, rankScore, rankName]
+  );
+
+  return {
+    openid,
+    unionid,
+    nickName,
+    avatarUrl,
+    rankScore,
+    rankName,
+    energy: 30,
+    copper: 0,
+    dailyCopper: 0,
+    lastCheckin: null,
+    lastDailyReset: null,
+    winCount: 0,
+    loseCount: 0,
+    drawCount: 0,
+    settings: {},
+    createTime: new Date(),
+  };
+}
+
+async function findByOpenid(openid) {
+  const [rows] = await pool.query('SELECT * FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return null;
+  const u = rows[0];
+  return {
+    openid: u.openid,
+    unionid: u.unionid,
+    nickName: u.nickName,
+    avatarUrl: u.avatarUrl,
+    rankScore: u.rankScore,
+    rankName: u.rankName,
+    energy: u.energy,
+    copper: u.copper,
+    dailyCopper: u.dailyCopper,
+    lastCheckin: u.lastCheckin,
+    lastDailyReset: u.lastDailyReset,
+    winCount: u.winCount,
+    loseCount: u.loseCount,
+    drawCount: u.drawCount,
+    settings: u.settings ? (typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings) : {},
+    createTime: u.createTime,
+  };
+}
+
+async function updateUser(openid, updates) {
+  const allowed = ['nickName', 'avatarUrl', 'rankScore', 'rankName', 'energy', 'copper', 'dailyCopper', 'lastCheckin', 'lastDailyReset', 'winCount', 'loseCount', 'drawCount', 'settings'];
+  const fields = [];
+  const values = [];
+  for (const k of allowed) {
+    if (k in updates) {
+      fields.push(`${k} = ?`);
+      values.push(k === 'settings' ? JSON.stringify(updates[k]) : updates[k]);
+    }
+  }
+  if (fields.length === 0) return;
+  values.push(openid);
+  await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE openid = ?`, values);
+}
+
+async function getUserGames(openid, limit = 20, skip = 0) {
+  const [rows] = await pool.query(
+    `SELECT * FROM games WHERE blackOpenid = ? OR whiteOpenid = ?
+     ORDER BY createTime DESC LIMIT ? OFFSET ?`,
+    [openid, openid, limit, skip]
+  );
+  return rows.map((g) => ({
+    gameId: g.gameId,
+    blackOpenid: g.blackOpenid,
+    whiteOpenid: g.whiteOpenid,
+    mode: g.mode,
+    result: g.result,
+    endReason: g.endReason,
+    endStage: g.endStage,
+    blackMoves: g.blackMoves,
+    whiteMoves: g.whiteMoves,
+    blackCaptures: g.blackCaptures,
+    whiteCaptures: g.whiteCaptures,
+    blackRating: g.blackRating,
+    whiteRating: g.whiteRating,
+    durationMs: g.durationMs,
+    createTime: g.createTime,
+    endTime: g.endTime,
+  }));
+}
+
+async function getRankList(limit = 50) {
+  const [rows] = await pool.query(
+    'SELECT openid, nickName, avatarUrl, rankScore, rankName FROM users ORDER BY rankScore DESC LIMIT ?',
+    [limit]
+  );
+  return rows.map((u, i) => ({
+    rank: i + 1,
+    openid: u.openid,
+    nickName: u.nickName,
+    avatarUrl: u.avatarUrl,
+    rankScore: u.rankScore,
+    rankName: u.rankName,
+  }));
+}
+
+// 更新用户维度战绩（session.js 中 userService.updateGameRecord 调用）
+async function updateUserGameResult(openid, result, ratingChange, afterScore) {
+  const field = result === 'win' ? 'winCount' : result === 'lose' ? 'loseCount' : 'drawCount';
+  await pool.query(
+    `UPDATE users SET ${field} = ${field} + 1, rankScore = ? WHERE openid = ?`,
+    [afterScore, openid]
+  );
+}
+
+// 保存完整对局记录（session.js 中 gameRecordService.saveGameRecord 调用）
+async function saveGameRecord({ gameId, blackPlayer, whitePlayer, result, endReason, endStage, blackRatingChange, whiteRatingChange, blackAfterScore, whiteAfterScore, blackMoves, whiteMoves, blackCaptures, whiteCaptures, durationMs }) {
+  await createGameRecord(gameId, blackPlayer.openid, whitePlayer.openid);
+  await updateGameRecord(gameId, {
+    result,
+    endReason,
+    endStage,
+    blackMoves,
+    whiteMoves,
+    blackCaptures,
+    whiteCaptures,
+    blackRating: blackAfterScore,
+    whiteRating: whiteAfterScore,
+    durationMs,
+    endTime: new Date(),
+  });
+  return gameId;
+}
+
+// ============ 对局记录 ============
+
+async function createGameRecord(gameId, blackOpenid, whiteOpenid, mode = 'random') {
+  await pool.query(
+    `INSERT INTO games (gameId, blackOpenid, whiteOpenid, mode)
+     VALUES (?, ?, ?, ?)`,
+    [gameId, blackOpenid, whiteOpenid, mode]
+  );
+}
+
+async function updateGameRecord(gameId, update) {
+  const allowed = ['result', 'endReason', 'endStage', 'blackMoves', 'whiteMoves', 'blackCaptures', 'whiteCaptures', 'blackRating', 'whiteRating', 'durationMs', 'endTime'];
+  const fields = [];
+  const values = [];
+  for (const k of allowed) {
+    if (k in update) {
+      fields.push(`${k} = ?`);
+      values.push(update[k]);
+    }
+  }
+  if (fields.length === 0) return;
+  values.push(gameId);
+  await pool.query(`UPDATE games SET ${fields.join(', ')} WHERE gameId = ?`, values);
+}
+
+// ============ 交易 / 铜板 / 能量 ============
+
+async function record(openid, type, amount, remark = '', balanceAfter) {
+  await pool.query(
+    `INSERT INTO transactions (openid, type, amount, balanceAfter, remark)
+     VALUES (?, ?, ?, ?, ?)`,
+    [openid, type, amount, balanceAfter ?? 0, remark]
+  );
+}
+
+async function getUserTransactions(openid, limit = 20) {
+  const [rows] = await pool.query(
+    'SELECT * FROM transactions WHERE openid = ? ORDER BY createTime DESC LIMIT ?',
+    [openid, limit]
+  );
+  return rows.map((t) => ({
+    id: t.id,
+    openid: t.openid,
+    type: t.type,
+    amount: t.amount,
+    balanceAfter: t.balanceAfter,
+    remark: t.remark,
+    createTime: t.createTime,
+  }));
+}
+
+async function checkin(openid, today) {
+  const [rows] = await pool.query('SELECT * FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+
+  const u = rows[0];
+  const lastCheckin = u.lastCheckin ? u.lastCheckin.toISOString().slice(0, 10) : null;
+  const todayStr = today.toISOString().slice(0, 10);
+
+  if (lastCheckin === todayStr) {
+    return { success: false, reason: 'already_checked_in', energy: u.energy };
+  }
+
+  const bonus = 5;
+  const newEnergy = u.energy + bonus;
+  await pool.query(
+    'UPDATE users SET energy = ?, lastCheckin = ? WHERE openid = ?',
+    [newEnergy, todayStr, openid]
+  );
+  return { success: true, energy: newEnergy, bonus };
+}
+
+async function deductEnergy(openid, amount) {
+  const [rows] = await pool.query('SELECT energy FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+  const cur = rows[0].energy;
+  if (cur < amount) return { success: false, reason: 'insufficient_energy', energy: cur };
+  const newEnergy = cur - amount;
+  await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [newEnergy, openid]);
+  return { success: true, energy: newEnergy };
+}
+
+async function addEnergy(openid, amount) {
+  const [rows] = await pool.query('SELECT energy FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+  const newEnergy = rows[0].energy + amount;
+  await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [newEnergy, openid]);
+  return { success: true, energy: newEnergy };
+}
+
+async function buyEnergy(openid, energyAmount, copperCost) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query('SELECT copper, energy FROM users WHERE openid = ? FOR UPDATE', [openid]);
+    if (rows.length === 0) {
+      await conn.rollback();
+      return { success: false, reason: 'user_not_found' };
+    }
+    const u = rows[0];
+    if (u.copper < copperCost) {
+      await conn.rollback();
+      return { success: false, reason: 'insufficient_copper', copper: u.copper };
+    }
+    const newCopper = u.copper - copperCost;
+    const newEnergy = u.energy + energyAmount;
+    await conn.query('UPDATE users SET copper = ?, energy = ? WHERE openid = ?', [newCopper, newEnergy, openid]);
+    await conn.query(
+      'INSERT INTO transactions (openid, type, amount, balanceAfter, remark) VALUES (?, ?, ?, ?, ?)',
+      [openid, 'copper_consume', -copperCost, newCopper, '购买精力']
+    );
+    await conn.commit();
+    return { success: true, copper: newCopper, energy: newEnergy };
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+async function updateCopper(openid, amount) {
+  const [rows] = await pool.query('SELECT copper FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+  const newCopper = rows[0].copper + amount;
+  await pool.query('UPDATE users SET copper = ? WHERE openid = ?', [newCopper, openid]);
+  return { success: true, copper: newCopper };
+}
+
+async function updateDailyCopper(openid, amount) {
+  const [rows] = await pool.query('SELECT dailyCopper FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+  const newDaily = rows[0].dailyCopper + amount;
+  await pool.query('UPDATE users SET dailyCopper = ? WHERE openid = ?', [newDaily, openid]);
+  return { success: true, dailyCopper: newDaily };
+}
+
+async function updateDailyReset(openid, today, resetFields = {}) {
+  const set = ['lastDailyReset = ?'];
+  const values = [today.toISOString().slice(0, 10)];
+  for (const [k, v] of Object.entries(resetFields)) {
+    if (['energy', 'dailyCopper'].includes(k)) {
+      set.push(`${k} = ?`);
+      values.push(v);
+    }
+  }
+  values.push(openid);
+  await pool.query(`UPDATE users SET ${set.join(', ')} WHERE openid = ?`, values);
+}
+
+async function updateSettings(openid, settings) {
+  await pool.query('UPDATE users SET settings = ? WHERE openid = ?', [JSON.stringify(settings), openid]);
+}
+
+// ============ 房间（Redis） ============
+
+async function generateRoomId() {
+  // 6位大写字母+数字
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let id;
+  do {
+    id = '';
+    for (let i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * chars.length)];
+  } while (await redis.exists(K.room + id));
+  return id;
+}
+
+async function createRoom(roomId, creatorOpenid) {
+  const data = {
+    roomId,
+    creatorOpenid,
+    joinerOpenid: '',
+    status: 'waiting',
+    createTime: Date.now(),
+    expireTime: Date.now() + 5 * 60 * 1000, // 5分钟
+  };
+  await redis.set(K.room + roomId, JSON.stringify(data), 'PX', 5 * 60 * 1000);
+  return data;
+}
+
+async function findByRoomId(roomId) {
+  const raw = await redis.get(K.room + roomId);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function joinRoom(roomId, joinerOpenid) {
+  const raw = await redis.get(K.room + roomId);
+  if (!raw) return null;
+  const room = JSON.parse(raw);
+  room.joinerOpenid = joinerOpenid;
+  room.status = 'matched';
+  await redis.set(K.room + roomId, JSON.stringify(room), 'PX', 5 * 60 * 1000);
+  return room;
+}
+
+async function updateStatus(roomId, status) {
+  const raw = await redis.get(K.room + roomId);
+  if (!raw) return;
+  const room = JSON.parse(raw);
+  room.status = status;
+  await redis.set(K.room + roomId, JSON.stringify(room), 'PX', 5 * 60 * 1000);
+}
+
+async function cancelRoom(roomId) {
+  await redis.del(K.room + roomId);
+}
+
+async function cleanExpired() {
+  // Redis 已用 PX 过期，这里为空实现以兼容原接口
+  return 0;
+}
+
+// ============ 内存态：匹配队列 / 对局 / 掉线（Redis） ============
+
+async function pushMatchQueue(openid) {
+  await redis.rpush(K.queue, openid);
+}
+
+async function popMatchQueue() {
+  return await redis.lpop(K.queue);
+}
+
+async function getQueueLength() {
+  return await redis.llen(K.queue);
+}
+
+async function removeFromQueue(openid) {
+  await redis.lrem(K.queue, 0, openid);
+}
+
+async function setGameState(gameId, state) {
+  await redis.set(K.game + gameId, JSON.stringify(state), 'PX', 60 * 60 * 1000);
+}
+
+async function getGameState(gameId) {
+  const raw = await redis.get(K.game + gameId);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function setOfflineCache(openid, data) {
+  // 掉线缓存 2 分钟，用于断线重连
+  await redis.set(K.offline + openid, JSON.stringify(data), 'PX', 2 * 60 * 1000);
+}
+
+async function getOfflineCache(openid) {
+  const raw = await redis.get(K.offline + openid);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function clearOfflineCache(openid) {
+  await redis.del(K.offline + openid);
+}
+
+module.exports = {
+  // 用户
+  getOrCreateUser,
+  findByOpenid,
+  updateUser,
+  getUserGames,
+  getRankList,
+  // 对局
+  createGameRecord,
+  updateGameRecord,
+  saveGameRecord,
+  // 交易
+  record,
+  getUserTransactions,
+  checkin,
+  deductEnergy,
+  addEnergy,
+  buyEnergy,
+  updateCopper,
+  updateDailyCopper,
+  updateDailyReset,
+  updateSettings,
+  // 房间
+  generateRoomId,
+  createRoom,
+  findByRoomId,
+  joinRoom,
+  updateStatus,
+  cancelRoom,
+  cleanExpired,
+  // 内存态
+  pushMatchQueue,
+  popMatchQueue,
+  getQueueLength,
+  removeFromQueue,
+  setGameState,
+  getGameState,
+  setOfflineCache,
+  getOfflineCache,
+  clearOfflineCache,
+
+  // ============ 兼容命名空间（session.js / handler.js 调用） ============
+  userService: {
+    getOrCreateUser,
+    findByOpenid,
+    updateUser,
+    getUserGames,
+    getRankList,
+    // session.js: userService.updateGameRecord(openid, result, ratingChange, afterScore)
+    updateGameRecord: updateUserGameResult,
+    updateDailyCopper,
+    // handler.js
+    buyEnergy,
+    addEnergy,
+    updateCopper,
+    deductEnergy,
+    checkin,
+    updateSettings,
+  },
+  gameRecordService: {
+    createGameRecord,
+    updateGameRecord,
+    saveGameRecord,
+    getUserGames,
+  },
+  transactionService: {
+    record,
+    getUserTransactions,
+  },
+  checkinService: {
+    checkin,
+  },
+  roomService: {
+    // session.js: roomService.createRoom(creatorUid, type)
+    async createRoom(creatorUid, type) {
+      const roomId = await generateRoomId();
+      const data = await createRoom(roomId, creatorUid);
+      return { ...data, _id: roomId, type: type || 'invite' };
+    },
+    async findByRoomId(roomId) {
+      const data = await findByRoomId(roomId);
+      return data ? { ...data, _id: roomId } : null;
+    },
+    async joinRoom(roomId, joinerOpenid) {
+      const data = await joinRoom(roomId, joinerOpenid);
+      return data ? { ...data, _id: roomId } : null;
+    },
+    async updateStatus(roomId, status) {
+      return updateStatus(roomId, status);
+    },
+    async cancelRoom(roomId) {
+      return cancelRoom(roomId);
+    },
+  },
+};

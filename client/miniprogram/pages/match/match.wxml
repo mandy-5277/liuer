@@ -1,0 +1,116 @@
+<!-- pages/match/match.wxml - 对局界面（按 Figma 设计稿） -->
+<view class="match-page">
+  <!-- 顶部资源栏 -->
+  <top-bar title="六儿对局" energy="{{energy}}" coins="{{coins}}" />
+
+  <!-- 对手信息栏 -->
+  <view class="player-card opponent-card">
+    <image class="player-avatar" src="{{opponentInfo.avatarUrl || '/images/default-avatar.png'}}" mode="aspectFill" />
+    <view class="player-meta">
+      <text class="player-name">{{opponentInfo.nickName || '等待对手'}}</text>
+      <text class="player-score">积分 {{opponentInfo.rankScore || 0}}</text>
+    </view>
+    <view class="player-extra">
+      <view class="catch-badge {{phase === 'move' ? 'remain-badge' : ''}}">
+        <text class="badge-label">{{phase === 'move' ? '剩余' : '可揪'}}</text>
+        <text class="badge-num">{{phase === 'move' ? opponentRemainText : opponentCatchNum}}</text>
+      </view>
+      <view class="turn-badge waiting" wx:if="{{!myTurn && phase !== 'settled'}}">对方走棋</view>
+    </view>
+  </view>
+
+  <!-- 阶段标签（棋盘上方） -->
+  <view class="stage-row">
+    <view class="stage-tag stage-{{phase}}">{{phaseLabel}}</view>
+  </view>
+
+  <!-- 棋盘 -->
+  <view class="board-area">
+    <board
+      size="{{680}}"
+      pieces="{{boardPieces}}"
+      legalCells="{{legalCells}}"
+      myTurn="{{myTurn}}"
+      phase="{{phase}}"
+      bind:celltap="onCellTap"
+      bind:piecetap="onPieceTap"
+    />
+  </view>
+
+  <!-- 走棋方标识（棋盘下方） -->
+  <view class="turn-row">
+    <view class="turn-tag {{myTurn ? 'turn-mine' : 'turn-opp'}}">{{myTurn ? '我方走棋' : '对方走棋'}}</view>
+  </view>
+
+  <!-- 己方信息栏 -->
+  <view class="player-card self-card">
+    <image class="player-avatar" src="{{myInfo.avatarUrl || '/images/default-avatar.png'}}" mode="aspectFill" />
+    <view class="player-meta">
+      <text class="player-name">{{myInfo.nickName || '我'}}</text>
+      <text class="player-score">积分 {{myInfo.rankScore || 0}}</text>
+    </view>
+    <view class="player-extra">
+      <view class="catch-badge {{phase === 'move' ? 'remain-badge' : ''}}">
+        <text class="badge-label">{{phase === 'move' ? '剩余' : '可揪'}}</text>
+        <text class="badge-num">{{phase === 'move' ? myRemainText : myCatchNum}}</text>
+      </view>
+      <view class="timer-ring {{timeLow ? 'timer-low' : ''}}">
+        <svg class="timer-svg" viewBox="0 0 36 36">
+          <path class="timer-track" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+          <path class="timer-progress" stroke-dasharray="{{timerProgress}}, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+        </svg>
+        <text class="timer-text">{{timerText}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部操作栏：认输 + 求和（去掉设置按钮） -->
+  <view class="action-bar">
+    <button class="action-btn give-up" bindtap="onGiveUp" wx:if="{{phase !== 'settled'}}">
+      <text class="btn-icon">🏳</text>
+      <text>认输</text>
+    </button>
+    <button class="action-btn draw" bindtap="onRequestDraw" wx:if="{{phase !== 'settled'}}">
+      <text class="btn-icon">🤝</text>
+      <text>求和</text>
+    </button>
+    <button class="action-btn skip" bindtap="onSkipCapture" wx:if="{{(skipAvailable || moveCaptureMode) && myTurn}}">
+      <text class="btn-icon">⏭</text>
+      <text>跳过</text>
+    </button>
+  </view>
+
+  <!-- 求和请求弹窗 -->
+  <modal visible="{{showDrawRequest}}" title="求和请求" showFooter="{{false}}" bind:close="onRejectDraw">
+    <view class="draw-modal-body" slot="default">
+      <text class="draw-msg">{{drawRequestName || '对方'}} 请求求和</text>
+      <view class="draw-btns">
+        <button class="btn-primary sm-btn" bindtap="onAcceptDraw">同意</button>
+        <button class="btn-secondary sm-btn" bindtap="onRejectDraw">拒绝</button>
+      </view>
+    </view>
+  </modal>
+
+  <!-- 认输确认弹窗 -->
+  <modal visible="{{showGiveUpConfirm}}" title="确认认输" showFooter="{{false}}" bind:close="cancelGiveUp">
+    <view class="giveup-modal-body" slot="default">
+      <text class="giveup-msg">认输将扣除 {{myResult === 'draw' ? 1 : 3}} 积分，确定吗？</text>
+      <view class="giveup-btns">
+        <button class="btn-danger sm-btn" bindtap="confirmGiveUp">确认认输</button>
+        <button class="btn-secondary sm-btn" bindtap="cancelGiveUp">取消</button>
+      </view>
+    </view>
+  </modal>
+
+  <!-- 结算弹窗 -->
+  <settle-modal
+    visible="{{showSettle}}"
+    result="{{myResult}}"
+    score="{{scoreChange}}"
+    reason="{{settleData.endReason || ''}}"
+    rankName="{{rankName}}"
+    rankScore="{{rankScore}}"
+    bind:close="onSettleClose"
+    bind:rematch="onSettleRematch"
+  />
+</view>

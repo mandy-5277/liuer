@@ -1,0 +1,70 @@
+<!-- pages/rank/rank.wxml - 排行榜 -->
+<view class="page-container">
+  <top-bar energy="{{energy}}" coins="{{coins}}" cdText="{{cdText}}" />
+
+  <view class="rank-content" style="margin-top: {{navTopOffset}}rpx;">
+    <!-- Tab 切换 -->
+    <view class="rank-tabs">
+      <view class="rank-tab {{tabIndex === 0 ? 'active' : ''}}" bindtap="switchTab" data-index="0">段位榜</view>
+      <view class="rank-tab {{tabIndex === 1 ? 'active' : ''}}" bindtap="switchTab" data-index="1">积分榜</view>
+      <view class="rank-tab {{tabIndex === 2 ? 'active' : ''}}" bindtap="switchTab" data-index="2">胜率榜</view>
+    </view>
+
+    <!-- 前3名 -->
+    <view class="top3-section" wx:if="{{tabIndex === 0}}">
+      <!-- 第2名 -->
+      <view class="top3-item rank2">
+        <text class="top3-rank">🥈</text>
+        <image class="top3-avatar" src="{{rankList[1].avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+        <text class="top3-name">{{rankList[1].name}}</text>
+        <text class="top3-rank-badge">{{rankList[1].rankName}}</text>
+        <text class="top3-score">{{rankList[1].score}}分</text>
+      </view>
+      <!-- 第1名 -->
+      <view class="top3-item rank1">
+        <text class="top3-rank">👑</text>
+        <image class="top3-avatar" src="{{rankList[0].avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+        <text class="top3-name">{{rankList[0].name}}</text>
+        <text class="top3-rank-badge">{{rankList[0].rankName}}</text>
+        <text class="top3-score">{{rankList[0].score}}分</text>
+      </view>
+      <!-- 第3名 -->
+      <view class="top3-item rank3">
+        <text class="top3-rank">🥉</text>
+        <image class="top3-avatar" src="{{rankList[2].avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+        <text class="top3-name">{{rankList[2].name}}</text>
+        <text class="top3-rank-badge">{{rankList[2].rankName}}</text>
+        <text class="top3-score">{{rankList[2].score}}分</text>
+      </view>
+    </view>
+
+    <!-- 排行列表 -->
+    <view class="card rank-list-card">
+      <view class="rank-list-item" wx:for="{{displayList}}" wx:key="id">
+        <text class="rank-num">{{item.rankNo}}</text>
+        <image class="rank-item-avatar" src="{{item.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+        <view class="rank-item-info">
+          <text class="rank-item-name">{{item.name}}</text>
+          <text class="rank-item-rank">{{item.rankName}}</text>
+        </view>
+        <text class="rank-item-value" wx:if="{{tabIndex === 0}}">{{item.score}}分</text>
+        <text class="rank-item-value" wx:elif="{{tabIndex === 1}}">{{item.score}}分</text>
+        <text class="rank-item-value" wx:else>{{item.winRate}}%</text>
+      </view>
+    </view>
+
+    <!-- 我的排名 -->
+    <view class="card my-rank-card">
+      <view class="rank-list-item my-rank">
+        <text class="rank-num">{{myRank}}</text>
+        <image class="rank-item-avatar" src="{{userInfo.avatarUrl || '/images/default-avatar.png'}}" mode="aspectFill" />
+        <view class="rank-item-info">
+          <text class="rank-item-name" style="color:var(--color-primary);">{{userInfo.nickName || '我'}}</text>
+          <text class="rank-item-rank">{{myRankName}}</text>
+        </view>
+        <text class="rank-item-value" style="color:var(--color-primary);">{{myRankScore}}分</text>
+      </view>
+    </view>
+  </view>
+
+</view>

@@ -1,0 +1,125 @@
+/* components/board/board.wxss - 棋盘样式 */
+.board-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.board-bg {
+  background: var(--color-board-bg);
+  border-radius: 16rpx;
+  position: relative;
+  overflow: hidden;
+}
+
+.board-grid {
+  position: absolute;
+  border: 3rpx solid var(--color-board-line);
+  box-sizing: border-box;
+}
+
+.grid-line-h {
+  position: absolute;
+  left: 0;
+  height: 0;
+  border-top: 3rpx solid var(--color-board-line);
+}
+
+.grid-line-v {
+  position: absolute;
+  top: 0;
+  width: 0;
+  border-left: 3rpx solid var(--color-board-line);
+}
+
+/* 交叉点（外层为 48rpx 点击热区） */
+.cell-dot {
+  position: absolute;
+  width: 48rpx;
+  height: 48rpx;
+  background: transparent;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cell-dot-core {
+  width: 12rpx;
+  height: 12rpx;
+  background: var(--color-dot);
+  border-radius: 50%;
+}
+
+/* 合法下子提示 */
+.legal-hint {
+  background: var(--color-success);
+  opacity: 0.4;
+  width: 48rpx;
+  height: 48rpx;
+  animation: legal-pulse 1.5s infinite;
+}
+
+.legal-hint .cell-dot-core {
+  background: transparent;
+}
+
+@keyframes legal-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+/* 棋子容器 */
+.piece-wrap {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+}
+
+/* 棋子 */
+.piece {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.25);
+}
+
+.piece-black {
+  background: var(--color-piece-black);
+}
+
+.piece-white {
+  background: var(--color-piece-white);
+  border: 3rpx solid #D0D0D0;
+}
+
+.piece-selected {
+  box-shadow: 0 0 0 6rpx var(--color-gold), 0 4rpx 12rpx rgba(0,0,0,0.25);
+}
+
+.piece-capturable {
+  box-shadow: 0 0 0 6rpx var(--color-danger), 0 4rpx 12rpx rgba(0,0,0,0.25);
+  animation: pulse-red 1s infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% {
+    box-shadow: 0 0 0 6rpx var(--color-danger), 0 4rpx 12rpx rgba(0,0,0,0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 14rpx rgba(217,74,74,0.35), 0 4rpx 12rpx rgba(0,0,0,0.25);
+  }
+}
+
+.piece-lock {
+  position: absolute;
+  font-size: 20rpx;
+  top: -4rpx;
+  right: -8rpx;
+  z-index: 6;
+}
+
+/* 四角坐标 */
+

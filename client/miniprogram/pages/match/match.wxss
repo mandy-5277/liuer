@@ -1,0 +1,328 @@
+/* pages/match/match.wxss - 对局界面（按 Figma 设计稿） */
+
+.match-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #F5F0E8;
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ========== 阶段标签 ========== */
+.stage-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8rpx 32rpx 4rpx;
+}
+
+.stage-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 64rpx;
+  padding: 0 44rpx;
+  border-radius: 32rpx;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #fff;
+  background: #999;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.12);
+}
+
+.stage-place { background: #4A90D9; }
+.stage-capture { background: #D94A4A; }
+.stage-move { background: #4AB86A; }
+.stage-settled { background: #8B8680; }
+
+/* ========== 走棋方标识 ========== */
+.turn-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rpx 32rpx 8rpx;
+}
+
+.turn-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 60rpx;
+  padding: 0 40rpx;
+  border-radius: 30rpx;
+  font-size: 32rpx;
+  font-weight: 700;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.12);
+}
+
+.turn-mine {
+  color: #fff;
+  background: #3CB371;
+}
+
+.turn-opp {
+  color: #fff;
+  background: #9B9B9B;
+}
+
+/* ========== 玩家卡片 ========== */
+.player-card {
+  display: flex;
+  align-items: center;
+  margin: 12rpx 32rpx;
+  padding: 16rpx 24rpx;
+  background: #FFFFFF;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.06);
+}
+
+.opponent-card {
+  margin-top: 8rpx;
+}
+
+.self-card {
+  margin-bottom: 8rpx;
+}
+
+.player-avatar {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: #EDE8E0;
+  flex-shrink: 0;
+}
+
+.player-meta {
+  display: flex;
+  flex-direction: column;
+  margin-left: 20rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.player-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #3D3A36;
+  line-height: 1.4;
+}
+
+.player-score {
+  font-size: 24rpx;
+  color: #8B8680;
+  margin-top: 4rpx;
+}
+
+.player-extra {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  flex-shrink: 0;
+}
+
+.catch-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 80rpx;
+  padding: 8rpx 16rpx;
+  background: #FDF0F0;
+  border: 1rpx solid #D94A4A;
+  border-radius: 12rpx;
+}
+
+.badge-label {
+  font-size: 20rpx;
+  color: #D94A4A;
+  line-height: 1.2;
+}
+
+.badge-num {
+  font-size: 32rpx;
+  font-weight: 800;
+  color: #D94A4A;
+  line-height: 1.2;
+}
+
+/* 走子阶段：剩余棋子数绿框展示 */
+.remain-badge {
+  background: #F0FAF4;
+  border: 1rpx solid #3CB371;
+}
+
+.remain-badge .badge-label,
+.remain-badge .badge-num {
+  color: #3CB371;
+}
+
+.turn-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8rpx 18rpx;
+  border-radius: 24rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #4A90D9;
+  background: #EDF5FC;
+}
+
+.turn-badge.waiting {
+  color: #4A90D9;
+  background: #EDF5FC;
+}
+
+/* ========== 计时器 ========== */
+.timer-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96rpx;
+  height: 96rpx;
+}
+
+.timer-svg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.timer-track {
+  fill: none;
+  stroke: #E8E3DD;
+  stroke-width: 3;
+}
+
+.timer-progress {
+  fill: none;
+  stroke: #4A90D9;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s linear;
+}
+
+.timer-low .timer-progress {
+  stroke: #D94A4A;
+}
+
+.timer-text {
+  position: relative;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #3D3A36;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-low .timer-text {
+  color: #D94A4A;
+  animation: pulse 0.8s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ========== 棋盘区域 ========== */
+.board-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 0;
+  min-height: 400rpx;
+}
+
+/* ========== 底部操作栏 ========== */
+.action-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 24rpx;
+  padding: 16rpx 48rpx 48rpx;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 80rpx;
+  padding: 0 48rpx;
+  border-radius: 40rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  background: #FFFFFF;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
+  border: none;
+  color: #3D3A36;
+}
+
+.action-btn::after {
+  border: none;
+}
+
+.action-btn .btn-icon {
+  font-size: 28rpx;
+}
+
+.action-btn.give-up {
+  color: #8B8680;
+  border: 2rpx solid #D9D4CC;
+}
+
+.action-btn.draw {
+  color: #C89B3C;
+  border: 2rpx solid #C89B3C;
+}
+
+.action-btn.skip {
+  color: #FFFFFF;
+  background: #4A90D9;
+}
+
+/* ========== 求和弹窗 ========== */
+.draw-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16rpx 0;
+}
+
+.draw-msg {
+  font-size: 32rpx;
+  color: #3D3A36;
+  margin-bottom: 24rpx;
+  font-weight: 600;
+}
+
+.draw-btns {
+  display: flex;
+  gap: 16rpx;
+  width: 100%;
+}
+
+/* ========== 认输弹窗 ========== */
+.giveup-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16rpx 0;
+}
+
+.giveup-msg {
+  font-size: 28rpx;
+  color: #8B8680;
+  margin-bottom: 24rpx;
+  text-align: center;
+}
+
+.giveup-btns {
+  display: flex;
+  gap: 16rpx;
+  width: 100%;
+}

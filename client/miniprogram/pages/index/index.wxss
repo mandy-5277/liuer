@@ -1,0 +1,371 @@
+/* pages/index/index.wxss */
+@import '../common/common.wxss';
+
+/* 中央核心区 */
+.hero-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 40rpx;
+  padding-bottom: 20rpx;
+}
+
+.game-title {
+  font-size: 56rpx;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: 8rpx;
+  margin-bottom: 16rpx;
+}
+
+/* Figma 棋盘 */
+.board-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16rpx;
+}
+
+.board-bg {
+  width: 452rpx;
+  height: 452rpx;
+  background: #E8DBCF;
+  border-radius: 16rpx;
+  position: relative;
+  overflow: hidden;
+}
+
+.board-grid {
+  width: 360rpx;
+  height: 360rpx;
+  position: absolute;
+  left: 46rpx;
+  top: 46rpx;
+  border: 3rpx solid var(--color-text);
+}
+
+.grid-line-h {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border-top: 3rpx solid var(--color-text);
+}
+
+.grid-line-v {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-left: 3rpx solid var(--color-text);
+}
+
+.board-dot {
+  position: absolute;
+  width: 12rpx;
+  height: 12rpx;
+  background: #C0B8A8;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* 棋子 */
+.piece {
+  position: absolute;
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.25);
+}
+.piece-black { background: #1A1A1A; }
+.piece-white { background: #FEFEFE; border: 3rpx solid #D0D0D0; }
+
+/* 打架动画 */
+.fight-left {
+  left: 30%;
+  top: 25%;
+  animation: fight1 1.5s infinite alternate;
+}
+.fight-right {
+  left: 70%;
+  top: 75%;
+  animation: fight2 1.5s infinite alternate;
+}
+@keyframes fight1 {
+  0% { transform: translate(-50%, -50%) translateX(-24rpx); }
+  100% { transform: translate(-50%, -50%) translateX(24rpx); }
+}
+@keyframes fight2 {
+  0% { transform: translate(-50%, -50%) translateX(24rpx); }
+  100% { transform: translate(-50%, -50%) translateX(-24rpx); }
+}
+
+.slogan {
+  font-size: 28rpx;
+  color: var(--color-text-light);
+  letter-spacing: 4rpx;
+}
+
+/* 按钮区 */
+.btn-section {
+  padding: 0 48rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  margin: 32rpx 0;
+}
+
+.btn-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.btn-hint {
+  font-size: 24rpx;
+  color: var(--color-text-light);
+  margin-bottom: 8rpx;
+}
+
+/* 用户卡片 */
+.user-card {
+  margin: 0 32rpx;
+  padding: 24rpx;
+}
+
+.user-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.user-avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+.user-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.user-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.user-name {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.user-rank-badge {
+  font-size: 20rpx;
+  font-weight: 600;
+  padding: 4rpx 12rpx;
+  background: #E8E3DA;
+  border-radius: 8rpx;
+  color: var(--color-text);
+}
+
+.user-stats {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+}
+
+.stat-value {
+  font-size: 32rpx;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.stat-label {
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+}
+
+.stat-divider {
+  width: 2rpx;
+  height: 48rpx;
+  background: var(--color-border);
+}
+
+/* 精力进度条 */
+.energy-bar-wrap {
+  margin-top: 20rpx;
+}
+
+.energy-bar {
+  width: 100%;
+  height: 12rpx;
+  background: #E8E3DA;
+  border-radius: 6rpx;
+  overflow: hidden;
+}
+
+.energy-bar-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 6rpx;
+  transition: width 0.3s ease;
+}
+
+.energy-bar-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8rpx;
+}
+
+.energy-bar-text {
+  font-size: 24rpx;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.energy-bar-cd {
+  font-size: 24rpx;
+  color: var(--color-text-light);
+}
+
+/* 规则入口 */
+.rule-entry {
+  display: flex;
+  justify-content: center;
+  padding: 24rpx 0 40rpx;
+  font-size: 26rpx;
+  color: var(--color-text-light);
+}
+
+/* 精力不足弹窗 */
+.energy-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8rpx;
+}
+
+.energy-current {
+  font-size: 28rpx;
+  color: var(--color-text);
+  margin: 8rpx 0;
+}
+
+.energy-hint {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+}
+
+.energy-cd {
+  font-size: 24rpx;
+  color: var(--color-text-light);
+  padding: 16rpx 0;
+}
+
+/* ========== 匹配中弹窗 ========== */
+.matching-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24rpx 0;
+}
+
+.matching-spin-text {
+  font-size: 64rpx;
+  margin-bottom: 16rpx;
+  animation: spin 1.5s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.matching-text {
+  font-size: 32rpx;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.matching-hint-text {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  margin-top: 8rpx;
+}
+
+/* ========== 房间码弹窗 ========== */
+.room-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24rpx 0;
+}
+
+.room-code-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.room-code-label {
+  font-size: 26rpx;
+  color: var(--color-text-secondary);
+  margin-bottom: 8rpx;
+}
+
+.room-code-value {
+  font-size: 56rpx;
+  font-weight: 800;
+  color: var(--color-primary);
+  letter-spacing: 8rpx;
+  margin-bottom: 24rpx;
+  padding: 12rpx 36rpx;
+  background: #F0EDE5;
+  border-radius: 12rpx;
+  border: 2rpx dashed var(--color-primary);
+}
+
+.room-btns {
+  display: flex;
+  gap: 16rpx;
+  width: 100%;
+}
+
+.sm-btn {
+  flex: 1;
+  height: 72rpx;
+  font-size: 26rpx;
+}
+
+.room-wait-hint {
+  font-size: 22rpx;
+  color: var(--color-text-light);
+  margin-top: 16rpx;
+}
+
+.room-loading-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32rpx 0;
+  font-size: 28rpx;
+  color: var(--color-text-secondary);
+}

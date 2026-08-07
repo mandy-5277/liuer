@@ -1,0 +1,10 @@
+{
+  "navigationBarTitleText": "对局中",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "top-bar": "/components/top-bar/top-bar",
+    "board": "/components/board/board",
+    "settle-modal": "/components/settle-modal/settle-modal",
+    "modal": "/components/modal/modal"
+  }
+}

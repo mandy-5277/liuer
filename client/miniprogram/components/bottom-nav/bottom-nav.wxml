@@ -1,0 +1,15 @@
+<!-- components/bottom-nav/bottom-nav.wxml - 底部导航栏 -->
+<view class="bottom-nav">
+  <navigator url="/pages/index/index" open-type="switchTab" class="nav-item {{current === 'index' ? 'active' : ''}}">
+    <text class="nav-icon">🏠</text>
+    <text class="nav-label">首页</text>
+  </navigator>
+  <navigator url="/pages/rank/rank" open-type="switchTab" class="nav-item {{current === 'rank' ? 'active' : ''}}">
+    <text class="nav-icon">🏆</text>
+    <text class="nav-label">排行</text>
+  </navigator>
+  <navigator url="/pages/profile/profile" open-type="switchTab" class="nav-item {{current === 'profile' ? 'active' : ''}}">
+    <text class="nav-icon">👤</text>
+    <text class="nav-label">我的</text>
+  </navigator>
+</view>

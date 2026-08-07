@@ -1,0 +1,24 @@
+<!-- components/modal/modal.wxml - 通用弹窗 -->
+<view class="modal" wx:if="{{visible}}" catchtouchmove="noop">
+  <view class="modal-overlay" bindtap="onClose"></view>
+  <view class="modal-content card">
+    <view class="modal-title" wx:if="{{title}}">{{title}}</view>
+    <view class="modal-body">
+      <slot></slot>
+    </view>
+    <view class="modal-footer" wx:if="{{showFooter}}">
+      <button
+        wx:if="{{cancelText}}"
+        class="btn-secondary-sm"
+        style="flex:1;"
+        bindtap="onCancel"
+      >{{cancelText}}</button>
+      <button
+        wx:if="{{confirmText}}"
+        class="btn-primary-sm"
+        style="flex:1;"
+        bindtap="onConfirm"
+      >{{confirmText}}</button>
+    </view>
+  </view>
+</view>

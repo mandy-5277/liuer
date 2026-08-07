@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "六儿",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "top-bar": "/components/top-bar/top-bar",
+    "modal": "/components/modal/modal"
+  }
+}

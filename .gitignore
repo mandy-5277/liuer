@@ -1,0 +1,26 @@
+# 依赖
+node_modules/
+
+# 环境变量 / 密钥（真实配置，绝不提交）
+server/.env
+
+# 日志
+*.log
+npm-debug.log*
+server/logs/
+
+# 本地缓存 / 运行时生成
+.cache/
+dist/
+build/
+
+# 操作系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
+
+# AI 生成预览图（非源码）
+generated-images/
+
+# 本地工具数据（规则/figma 缓存，非源码）
+.codebuddy/

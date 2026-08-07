@@ -1,0 +1,146 @@
+/* pages/rank/rank.wxss */
+.rank-content {
+  padding-bottom: 40rpx;
+}
+
+/* Tab 切换 */
+.rank-tabs {
+  display: flex;
+  padding: 16rpx 32rpx;
+  gap: 16rpx;
+}
+
+.rank-tab {
+  flex: 1;
+  text-align: center;
+  padding: 16rpx 0;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-radius: 16rpx;
+  background: transparent;
+}
+
+.rank-tab.active {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* 前三名 */
+.top3-section {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 32rpx 32rpx 16rpx;
+}
+
+.top3-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.top3-rank {
+  font-size: 40rpx;
+}
+
+.top3-avatar {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+.rank1 .top3-avatar {
+  width: 100rpx;
+  height: 100rpx;
+}
+
+.top3-name {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.top3-rank-badge {
+  font-size: 20rpx;
+  color: var(--color-primary);
+  padding: 2rpx 10rpx;
+  background: rgba(139, 105, 20, 0.08);
+  border-radius: 8rpx;
+}
+
+.top3-score {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.rank2 { padding-bottom: 8rpx; }
+.rank3 { padding-bottom: 8rpx; }
+
+/* 排行列表 */
+.rank-list-card {
+  margin: 0 32rpx 16rpx;
+  padding: 8rpx 24rpx;
+}
+
+.rank-list-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 0;
+  border-bottom: 2rpx solid var(--color-border);
+}
+.rank-list-item:last-child { border-bottom: none; }
+
+.rank-num {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  width: 48rpx;
+  text-align: center;
+}
+
+.rank-item-avatar {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+.rank-item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.rank-item-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.rank-item-rank {
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+}
+
+.rank-item-value {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* 我的排名 */
+.my-rank-card {
+  margin: 0 32rpx 16rpx;
+  padding: 8rpx 24rpx;
+}
+
+.my-rank {
+  border-bottom: none;
+}

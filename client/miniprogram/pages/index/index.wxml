@@ -1,0 +1,145 @@
+<!-- pages/index/index.wxml - 首页大厅 -->
+<view class="page-container">
+  <top-bar energy="{{energy}}" coins="{{coins}}" cdText="{{cdText}}" />
+
+  <!-- 中央核心区 -->
+  <view class="hero-section" style="margin-top: {{navTopOffset}}rpx;">
+    <!-- 游戏名 -->
+    <text class="game-title">六儿</text>
+
+    <!-- 6×6 棋盘 Figma CSS 动画 -->
+    <view class="board-wrap">
+      <view class="board-bg">
+        <view class="board-grid">
+          <!-- 水平线 -->
+          <view class="grid-line-h" style="top:12.5%;"></view>
+          <view class="grid-line-h" style="top:31.25%;"></view>
+          <view class="grid-line-h" style="top:50%;"></view>
+          <view class="grid-line-h" style="top:68.75%;"></view>
+          <view class="grid-line-h" style="top:87.5%;"></view>
+          <!-- 垂直线 -->
+          <view class="grid-line-v" style="left:12.5%;"></view>
+          <view class="grid-line-v" style="left:31.25%;"></view>
+          <view class="grid-line-v" style="left:50%;"></view>
+          <view class="grid-line-v" style="left:68.75%;"></view>
+          <view class="grid-line-v" style="left:87.5%;"></view>
+          <!-- 36个交叉点 -->
+          <block wx:for="{{boardDots}}" wx:key="*this">
+            <view class="board-dot" style="left:{{item.x}}%;top:{{item.y}}%;"></view>
+          </block>
+          <!-- 打架棋子 -->
+          <view class="piece piece-black fight-left"></view>
+          <view class="piece piece-white fight-right"></view>
+        </view>
+      </view>
+    </view>
+
+    <!-- Slogan -->
+    <text class="slogan">下子布局 · 揪子博弈 · 走子决胜</text>
+  </view>
+
+  <!-- 按钮区 -->
+  <view class="btn-section">
+    <view class="btn-group">
+      <text class="btn-hint">消耗5点精力</text>
+      <button class="btn-primary" style="gap: 12rpx;" bindtap="onRandomMatch">
+        <text>⚔️</text>
+        <text>随机匹配</text>
+      </button>
+    </view>
+    <view class="btn-group">
+      <button class="btn-secondary" style="gap: 12rpx;" bindtap="onCreateRoom">
+        <text>👥</text>
+        <text>好友开局</text>
+      </button>
+    </view>
+  </view>
+
+  <!-- 匹配中弹窗 -->
+  <modal visible="{{showMatching}}" title="正在匹配对手" showFooter="{{false}}" bind:close="onCancelMatching">
+    <view class="matching-modal-body" slot="default">
+      <text class="matching-spin-text">🔍</text>
+      <text class="matching-text">正在寻找对手...</text>
+      <text class="matching-hint-text">匹配成功后自动开局</text>
+      <button class="btn-secondary" style="margin-top:24rpx;" bindtap="onCancelMatching">取消匹配</button>
+    </view>
+  </modal>
+
+  <!-- 房间码弹窗 -->
+  <modal visible="{{showRoomModal}}" title="好友开局" showFooter="{{false}}" bind:close="onCloseRoomModal">
+    <view class="room-modal-body" slot="default">
+      <view wx:if="{{roomCode}}" class="room-code-section">
+        <text class="room-code-label">房间号</text>
+        <text class="room-code-value">{{roomCode}}</text>
+        <view class="room-btns">
+          <button class="btn-primary sm-btn" bindtap="onCopyRoomCode">复制房间号</button>
+          <button class="btn-secondary sm-btn" open-type="share">分享给好友</button>
+        </view>
+        <text class="room-wait-hint">等待好友加入，加入后自动开局</text>
+      </view>
+      <view wx:else class="room-loading-section">
+        <text>正在创建房间...</text>
+      </view>
+    </view>
+  </modal>
+
+  <!-- 底部个人卡片 -->
+  <view class="user-card card">
+    <view class="user-card-top">
+      <!-- 左侧：头像+信息 -->
+      <view class="user-info">
+        <image class="user-avatar" src="{{userInfo.avatarUrl || '/images/default-avatar.png'}}" mode="aspectFill" />
+        <view class="user-detail">
+          <view class="user-name-row">
+            <text class="user-name">{{userInfo.nickName || '六儿玩家'}}</text>
+            <text class="user-rank-badge">{{rankName}}</text>
+          </view>
+        </view>
+      </view>
+      <!-- 右侧：积分+胜率 -->
+      <view class="user-stats">
+        <view class="stat-item">
+          <text class="stat-value">{{rankScore}}</text>
+          <text class="stat-label">积分</text>
+        </view>
+        <view class="stat-divider"></view>
+        <view class="stat-item">
+          <text class="stat-value">{{winRate}}%</text>
+          <text class="stat-label">胜率</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 精力进度条 -->
+    <view class="energy-bar-wrap">
+      <view class="energy-bar">
+        <view class="energy-bar-fill" style="width: {{energyPercent}}%;"></view>
+      </view>
+      <view class="energy-bar-info">
+        <text class="energy-bar-text">{{energy.current}}/{{energy.max}}</text>
+        <text class="energy-bar-cd">下次恢复 {{cdText}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 规则入口 -->
+  <navigator url="/pages/rules/rules" class="rule-entry">
+    <text>游戏规则 ▶</text>
+  </navigator>
+
+  <!-- 精力不足弹窗 -->
+  <modal
+    visible="{{showEnergyModal}}"
+    title="⚡ 精力不足"
+    showFooter="{{false}}"
+    bind:close="onCloseEnergyModal"
+  >
+    <view class="energy-modal-body" slot="default">
+      <text class="energy-current">当前精力 {{energy.current}}/{{energy.max}}</text>
+      <text class="energy-hint">开局需要 5 点精力</text>
+      <button class="btn-primary" style="height:84rpx;font-size:28rpx;margin-top:24rpx;" bindtap="onWatchAd">🎬 看广告 +10精力 (20🪙)</button>
+      <button class="btn-secondary" style="height:84rpx;font-size:28rpx;margin-top:16rpx;" bindtap="onBuyEnergy">🪙 30铜板购买10精力</button>
+      <text class="energy-cd">⏳ {{cdText}}后自动恢复</text>
+    </view>
+  </modal>
+</view>

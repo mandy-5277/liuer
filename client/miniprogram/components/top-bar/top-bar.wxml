@@ -1,0 +1,15 @@
+<!-- components/top-bar/top-bar.wxml - 顶部资源栏 -->
+<view class="top-bar" style="padding-top: {{statusBarHeight}}px;">
+  <text class="top-logo">{{title}}</text>
+  <view class="top-res">
+    <view class="top-item">
+      <text class="top-icon">⚡</text>
+      <text class="top-value">{{energy.current}}/{{energy.max}}</text>
+    </view>
+    <text class="top-cd" wx:if="{{cdText}}">⏳ {{cdText}}</text>
+    <view class="top-item">
+      <text class="top-icon">🪙</text>
+      <text class="top-value">{{coins}}</text>
+    </view>
+  </view>
+</view>

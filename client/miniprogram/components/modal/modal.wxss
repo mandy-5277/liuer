@@ -1,0 +1,42 @@
+/* components/modal/modal.wxss */
+.modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal-content {
+  position: relative;
+  width: 660rpx;
+  padding: 40rpx 32rpx;
+  border-radius: 24rpx;
+  z-index: 1001;
+}
+
+.modal-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: var(--color-text);
+  text-align: center;
+  margin-bottom: 20rpx;
+}
+
+.modal-body {
+  font-size: 28rpx;
+  color: var(--color-text-secondary);
+}
+
+.modal-footer {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 32rpx;
+}

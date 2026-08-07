@@ -1,0 +1,129 @@
+/* ========== 全局样式变量 ========== */
+page {
+  --color-primary: #8B6914;        /* 赭石色 - 主色调 */
+  --color-primary-light: #A0822D;  /* 赭石色亮 */
+  --color-primary-dark: #6B5010;   /* 赭石色暗 */
+  --color-bg: #F5F0E8;             /* 米白底色 */
+  --color-bg-dark: #EAE2D5;        /* 深米白 */
+  --color-card: #FFFFFF;           /* 卡片白 */
+  --color-text: #3C2F28;           /* 深棕主文字 */
+  --color-text-secondary: #7E756F; /* 灰色次要文字 */
+  --color-text-light: #B0B0B0;     /* 浅灰提示文字 */
+  --color-border: #E8E3DA;         /* 边框色 */
+  --color-board-bg: #FFFFFF;       /* 棋盘底色（Figma 白底） */
+  --color-board-line: #3C2F28;     /* 棋盘线 */
+  --color-dot: #C0B8A8;            /* 交叉点 */
+  --color-success: #4AB86A;        /* 绿色 - 胜利 */
+  --color-danger: #D94A4A;         /* 红色 - 失败/可揪 */
+  --color-gold: #D4A843;           /* 金色 - 选中/段位 */
+  --color-blue: #4A90D9;           /* 蓝色 - 下子阶段 */
+  --color-piece-black: #1A1A1A;    /* 黑棋 */
+  --color-piece-white: #FEFEFE;    /* 白棋 */
+
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 28rpx;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  box-sizing: border-box;
+  line-height: 1.5;
+}
+
+/* ========== 通用按钮 ========== */
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
+  font-size: 32rpx;
+  font-weight: 700;
+  border-radius: 24rpx;
+  border: none;
+  height: 96rpx;
+  width: 100%;
+  padding: 0;
+}
+.btn-primary::after { border: none; }
+
+.btn-primary-sm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
+  font-size: 28rpx;
+  font-weight: 700;
+  border-radius: 16rpx;
+  border: none;
+  height: 72rpx;
+  padding: 0 32rpx;
+}
+.btn-primary-sm::after { border: none; }
+
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 32rpx;
+  font-weight: 700;
+  border-radius: 24rpx;
+  border: 3rpx solid var(--color-primary);
+  height: 96rpx;
+  width: 100%;
+  padding: 0;
+}
+.btn-secondary::after { border: none; }
+
+.btn-secondary-sm {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 28rpx;
+  font-weight: 700;
+  border-radius: 16rpx;
+  border: 3rpx solid var(--color-primary);
+  height: 72rpx;
+  padding: 0 32rpx;
+}
+.btn-secondary-sm::after { border: none; }
+
+.btn-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 28rpx;
+  font-weight: 600;
+  border-radius: 16rpx;
+  border: 2rpx solid var(--color-text-light);
+  height: 84rpx;
+  padding: 0;
+}
+.btn-ghost::after { border: none; }
+
+/* ========== 通用卡片 ========== */
+.card {
+  background: var(--color-card);
+  border-radius: 24rpx;
+  border: 2rpx solid var(--color-border);
+  padding: 24rpx;
+}
+
+/* ========== 分割线 ========== */
+.divider {
+  height: 2rpx;
+  background: var(--color-border);
+  margin: 16rpx 0;
+}
+
+/* ========== 页面容器 ========== */
+.page-container {
+  min-height: 100vh;
+  padding-bottom: 100rpx;
+  box-sizing: border-box;
+}

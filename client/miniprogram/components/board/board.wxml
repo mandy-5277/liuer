@@ -1,0 +1,37 @@
+<!-- components/board/board.wxml - 6×6 交叉点棋盘 -->
+<view class="board-wrap" style="width: {{size}}rpx; height: {{size}}rpx;">
+  <view class="board-bg" style="width: {{size}}rpx; height: {{size}}rpx;">
+    <!-- 棋盘网格线 -->
+    <view class="board-grid" style="width: {{gridSize}}rpx; height: {{gridSize}}rpx; left: {{gridOffset}}rpx; top: {{gridOffset}}rpx;">
+      <!-- 水平线 -->
+      <block wx:for="{{gridRows}}" wx:key="*this">
+        <view class="grid-line-h" style="width: {{gridSize}}rpx; top: {{item * spacing}}rpx;"></view>
+      </block>
+      <!-- 垂直线 -->
+      <block wx:for="{{gridRows}}" wx:key="*this">
+        <view class="grid-line-v" style="height: {{gridSize}}rpx; left: {{item * spacing}}rpx;"></view>
+      </block>
+      <!-- 36个交叉点，外层 48rpx 为点击热区 -->
+      <block wx:for="{{cells}}" wx:key="index">
+        <view
+          class="cell-dot {{item.legal ? 'legal-hint' : ''}}"
+          style="left: {{item.x}}rpx; top: {{item.y}}rpx;"
+          data-index="{{index}}"
+          bindtap="onCellTap"
+        >
+          <view class="cell-dot-core"></view>
+        </view>
+      </block>
+      <!-- 棋子 -->
+      <block wx:for="{{pieces}}" wx:key="index">
+        <!-- 成型棋子带锁标 -->
+        <view class="piece-wrap" style="left: {{item.x}}rpx; top: {{item.y}}rpx;" data-index="{{index}}" bindtap="onPieceTap">
+          <view
+            class="piece {{item.color === 'black' ? 'piece-black' : 'piece-white'}} {{item.selected ? 'piece-selected' : ''}} {{item.capturable ? 'piece-capturable' : ''}}"
+          ></view>
+          <text wx:if="{{item.locked}}" class="piece-lock">🔒</text>
+        </view>
+      </block>
+    </view>
+  </view>
+</view>

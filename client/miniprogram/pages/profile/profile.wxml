@@ -1,0 +1,103 @@
+<!-- pages/profile/profile.wxml - 个人主页 -->
+<view class="page-container">
+  <top-bar energy="{{energy}}" coins="{{coins}}" cdText="{{cdText}}" />
+
+  <view class="profile-content" style="margin-top: {{navTopOffset}}rpx;">
+    <!-- 用户头部信息 -->
+    <view class="profile-header card">
+      <image class="profile-avatar" src="{{userInfo.avatarUrl || '/images/default-avatar.png'}}" mode="aspectFill" />
+      <text class="profile-name">{{userInfo.nickName || '六儿玩家'}}</text>
+      <view class="profile-rank-badge">
+        <text class="rank-icon">🏅</text>
+        <text>{{rankName}}</text>
+      </view>
+    </view>
+
+    <!-- 段位进度 -->
+    <view class="card rank-section">
+      <view class="section-title">段位进度</view>
+      <view class="rank-progress">
+        <view class="rank-progress-header">
+          <text>{{rankName}}</text>
+          <text>{{rankScore}}/100</text>
+        </view>
+        <view class="rank-progress-track">
+          <view class="rank-progress-fill" style="width: {{rankScore}}%;"></view>
+        </view>
+      </view>
+      <!-- 段位列表 -->
+      <view class="rank-list">
+        <view class="rank-item {{rankName === '初级小六' ? 'current' : ''}}"><text>初级小六</text><text>▶</text></view>
+        <view class="rank-item {{rankName === '中级小六' ? 'current' : ''}}"><text>中级小六</text><text>▶</text></view>
+        <view class="rank-item {{rankName === '高级小六' ? 'current' : ''}}"><text>高级小六</text><text>▶</text></view>
+        <view class="rank-item {{rankName === '初级老六' ? 'current' : ''}}"><text>初级老六</text><text>▶</text></view>
+        <view class="rank-item {{rankName === '中级老六' ? 'current' : ''}}"><text>中级老六</text><text>▶</text></view>
+        <view class="rank-item {{rankName === '高级老六' ? 'current' : ''}}"><text>高级老六</text><text>▶</text></view>
+        <view class="rank-item {{rankName === '资深老六' ? 'current' : ''}} last"><text>资深老六</text><text>▶</text></view>
+      </view>
+    </view>
+
+    <!-- 战绩统计 -->
+    <view class="card stats-section">
+      <view class="section-title">战绩统计</view>
+      <view class="stats-grid">
+        <view class="stat-box">
+          <text class="stat-num">{{stats.totalGames}}</text>
+          <text class="stat-label">总对局</text>
+        </view>
+        <view class="stat-box">
+          <text class="stat-num win">{{stats.wins}}</text>
+          <text class="stat-label">胜利</text>
+        </view>
+        <view class="stat-box">
+          <text class="stat-num lose">{{stats.losses}}</text>
+          <text class="stat-label">失败</text>
+        </view>
+        <view class="stat-box">
+          <text class="stat-num">{{winRate}}%</text>
+          <text class="stat-label">胜率</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 资源 -->
+    <view class="card resource-section">
+      <view class="section-title">我的资源</view>
+      <view class="resource-row">
+        <view class="resource-item">
+          <text class="resource-icon">⚡</text>
+          <view class="resource-info">
+            <text class="resource-value">{{energy.current}}/{{energy.max}}</text>
+            <text class="resource-label">精力</text>
+          </view>
+        </view>
+        <view class="resource-item">
+          <text class="resource-icon">🪙</text>
+          <view class="resource-info">
+            <text class="resource-value">{{coins}}</text>
+            <text class="resource-label">铜板</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 菜单 -->
+    <view class="card menu-section">
+      <view class="menu-item" bindtap="onSettings">
+        <text>设置</text>
+        <text class="menu-arrow">▶</text>
+      </view>
+      <view class="divider"></view>
+      <view class="menu-item" bindtap="onRules">
+        <text>游戏规则</text>
+        <text class="menu-arrow">▶</text>
+      </view>
+      <view class="divider"></view>
+      <view class="menu-item" bindtap="onFeedback">
+        <text>意见反馈</text>
+        <text class="menu-arrow">▶</text>
+      </view>
+    </view>
+  </view>
+
+</view>
