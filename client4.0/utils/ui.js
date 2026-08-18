@@ -118,6 +118,7 @@ function drawButton(ctx, opts) {
     border = null,
     bold = true,
   } = opts;
+  let tc = textColor;
 
   if (border) {
     roundRect(ctx, x, y, w, h, radius);
@@ -126,7 +127,7 @@ function drawButton(ctx, opts) {
     ctx.lineWidth = 2;
     ctx.strokeStyle = border;
     ctx.stroke();
-    textColor = textColor === PALETTE.textOnGold ? PALETTE.gold : textColor;
+    tc = tc === PALETTE.textOnGold ? PALETTE.gold : tc;
   } else {
     roundRect(ctx, x, y, w, h, radius);
     ctx.fillStyle = fill;
@@ -134,7 +135,7 @@ function drawButton(ctx, opts) {
   }
 
   if (text) {
-    ctx.fillStyle = textColor;
+    ctx.fillStyle = tc;
     ctx.font = `${bold ? 'bold ' : ''}${fontSize}px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
