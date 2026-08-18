@@ -310,6 +310,7 @@ class GameEngine {
         board: cloneBoard(this.board),
         catchNums: { black: this.blackCatchNum, white: this.whiteCatchNum },
         currentTurn: this.currentTurn,
+        stage: this.stage,
         stageChanged: this.stage === Stage.MOVING,
         skipped: true,
       };
@@ -348,6 +349,7 @@ class GameEngine {
         white: this.whiteCatchNum,
       },
       currentTurn: this.currentTurn,
+      stage: this.stage,
       stageChanged: this.stage === Stage.MOVING,
     };
   }
