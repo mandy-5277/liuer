@@ -98,7 +98,7 @@ function registerWs() {
   wsManager.on('game_settle', onGameSettle);
   wsManager.on('timeout_warning', () => wx.showToast({ title: '已超时，系统将自动操作', icon: 'none' }));
   wsManager.on('error', onError);
-  wsManager.on('opponent_disconnected', () => wx.showToast({ title: '对手已掉线，等待重连...', icon: 'none' }));
+  wsManager.on('opponent_disconnected', () => wx.showToast({ title: '对手已掉线，30秒后判你胜', icon: 'none' }));
 }
 
 function removeWs() {
@@ -425,7 +425,7 @@ function drawBoard(ctx) {
 }
 
 function drawBottomActions(ctx) {
-  const btnW = (W - 100) / 4;
+  const btnW = (W - 80) / 3;
   const btnH = 50;
   const y = H - 90;
   const gap = 20;
@@ -434,7 +434,6 @@ function drawBottomActions(ctx) {
   const defs = [
     { text: '求和', color: PALETTE.gold },
     { text: '认输', color: PALETTE.red },
-    { text: '退出', color: PALETTE.textDim },
     { text: '设置', color: PALETTE.gold },
   ];
   defs.forEach((d, i) => {
@@ -537,8 +536,7 @@ function onTouch(x, y) {
   if (rects.actionBtns) {
     if (hit(rects.actionBtns[0], x, y)) { requestDraw(); return; }
     if (hit(rects.actionBtns[1], x, y)) { game.showGiveUpConfirm = true; return; }
-    if (hit(rects.actionBtns[2], x, y)) { sceneMgr.goto('home'); return; }
-    if (hit(rects.actionBtns[3], x, y)) { game.showSettings = true; return; }
+    if (hit(rects.actionBtns[2], x, y)) { game.showSettings = true; return; }
   }
 
   const { ox, oy, step } = boardGeo;

@@ -40,7 +40,7 @@ module.exports = {
     drawNoCatchRounds: 5,  // 无有效揪回合数和棋
     drawRequestCooldown: 15000, // 求和冷却 15秒
     roomExpire: 60000,     // 房间过期 60秒
-    reconnectWindow: 15000, // 断线重连窗口15秒
+    reconnectWindow: 30000, // 断线重连窗口30秒，超时判掉线方负
     energyPerGame: 1,      // 每局消耗精力
     copperPerGame: 5,      // 每局获得铜板
     maxCopperPerDay: 50,   // 每日对局铜板上限

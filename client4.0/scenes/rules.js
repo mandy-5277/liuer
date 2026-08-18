@@ -4,8 +4,26 @@
  */
 
 const { state } = require('../state');
-const { PALETTE, drawText, drawCard, hit, roundRect } = require('../utils/ui');
+const { PALETTE, drawText, drawCard, hit, roundRect, FONT_FAMILY } = require('../utils/ui');
 const sceneMgr = require('./index');
+
+/** 按最大像素宽度折行，返回字符串数组 */
+function wrapText(ctx, text, fontSize, maxWidth) {
+  ctx.font = `${fontSize}px ${FONT_FAMILY}`;
+  const result = [];
+  let line = '';
+  for (const ch of text) {
+    const test = line + ch;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      result.push(line);
+      line = ch;
+    } else {
+      line = test;
+    }
+  }
+  if (line) result.push(line);
+  return result;
+}
 
 let W = 375;
 let H = 667;
@@ -104,13 +122,26 @@ function onDraw(ctx) {
   // 文本
   const lines = CONTENT[tabIndex] || [];
   let ty = doy + ds + 50;
+  const leftPad = 30;
+  const maxW = W - leftPad * 2;
   lines.forEach((line) => {
-    drawText(ctx, line, 30, ty, {
-      color: line.startsWith('【') ? PALETTE.gold : PALETTE.text,
-      fontSize: line.startsWith('【') ? 26 : 23,
-      bold: line.startsWith('【'),
+    const isTitle = line.startsWith('【');
+    const fs = isTitle ? 26 : 23;
+    const color = isTitle ? PALETTE.gold : PALETTE.text;
+    if (line === '') {
+      ty += 20;
+      return;
+    }
+    const wrapped = wrapText(ctx, line, fs, maxW);
+    wrapped.forEach((wl) => {
+      ctx.fillStyle = color;
+      ctx.font = `${isTitle ? 'bold ' : ''}${fs}px ${FONT_FAMILY}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(wl, leftPad, ty);
+      ty += fs + 10;
     });
-    ty += line.startsWith('【') ? 40 : 32;
+    ty += isTitle ? 8 : 4;
   });
 
   drawTabBar(ctx);

@@ -271,7 +271,6 @@ function drawBottomNav(ctx) {
     { key: 'home', label: '首页', icon: '🏠' },
     { key: 'rank', label: '排行榜', icon: '🏆' },
     { key: 'profile', label: '我的', icon: '👤' },
-    { key: 'rules', label: '规则', icon: '📖' },
   ];
   const itemW = W / items.length;
   rects.tabs = [];
