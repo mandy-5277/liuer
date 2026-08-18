@@ -29,12 +29,44 @@ async function dispatch(ws, msg) {
   const { cmd, data = {}, seq } = msg;
 
   try {
-    switch (cmd) {
-      // ========== 认证 ==========
-      case 'login':
-        await handleLogin(ws, data);
-        break;
+    // ========== 认证 ==========
+    // login 是异步的（要查 DB）。服务端按消息顺序收到 login 后，把它包装成 Promise；
+    // 后续非 login 指令必须先 await 该 Promise，避免在 DB 查询期间并发处理业务指令，
+    // 导致连接尚未注册到 wsMap 就返回"请先登录"。
+    if (cmd === 'login') {
+      ws.loginPromise = handleLogin(ws, data).catch((err) => {
+        console.error('[WS] handleLogin 异常:', err);
+      });
+      await ws.loginPromise;
+      return;
+    }
 
+    // ========== 心跳 ==========
+    // ping 不需要登录，直接响应
+    if (cmd === 'ping') {
+      ws.isAlive = true;
+      ws.send(JSON.stringify({ cmd: 'pong' }));
+      return;
+    }
+
+    // ========== 其他业务指令 ==========
+    // 若登录仍在进行中，等待登录完成
+    if (ws.loginPromise) {
+      await ws.loginPromise;
+    }
+
+    const openid = getOpenid(ws);
+    if (!openid) {
+      console.log(`[WS] 未登录请求被拒绝: cmd=${cmd}, ws.openid=${ws.openid || 'null'}, wsMap.has=${wsMap.has(ws.openid || '')}`);
+      safeSend(ws, {
+        cmd: 'error',
+        data: { errMsg: '请先登录', cmd },
+        seq,
+      });
+      return;
+    }
+
+    switch (cmd) {
       // ========== 匹配 ==========
       case 'match_start':
         handleMatchStart(ws, data);
@@ -63,7 +95,7 @@ async function dispatch(ws, msg) {
       case 'give_up':
       case 'request_draw':
       case 'respond_draw':
-        handleGameAction(getOpenid(ws), cmd, data);
+        handleGameAction(openid, cmd, data);
         break;
 
       // ========== 用户数据 ==========
@@ -104,16 +136,8 @@ async function dispatch(ws, msg) {
         handleReconnect(ws, data);
         break;
 
-      // ========== 心跳 ==========
-      case 'ping':
-        // 更新 isAlive，配合 index.js 中的心跳检测定时器使用
-        // 客户端每 25s 发送一次 ping，服务端每 30s 检测一次 isAlive
-        ws.isAlive = true;
-        ws.send(JSON.stringify({ cmd: 'pong' }));
-        break;
-
       default:
-        sendToPlayer(getOpenid(ws), {
+        sendToPlayer(openid, {
           cmd: 'error',
           data: { errMsg: `未知指令: ${cmd}` },
         });

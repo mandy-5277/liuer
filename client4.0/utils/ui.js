@@ -203,6 +203,39 @@ function hit(rect, px, py) {
 }
 
 /**
+ * 统一的底部导航栏（带图标 + 文字双行）。
+ * 用法：const tabs = drawBottomNav(ctx, activeKey, rects);
+ *       rects.bottomTabs 会被写入命中区域，供 onTouch 使用。
+ * 样式与首页保持一致：icon fontSize20 在 y+26，文字 fontSize12 在 y+48，
+ * active 高亮用 rgba(139,105,20,0.10) 背景 + 金色文字。
+ * 注意：当前页自身项会被跳过（不响应点击），调用方自行处理。
+ */
+function drawBottomNav(ctx, activeKey, rects) {
+  const tabH = 64;
+  const y = (rects.H || ctx.canvas.height) - tabH;
+  drawCard(ctx, { x: 0, y, w: rects.W || ctx.canvas.width, h: tabH, radius: 0, border: PALETTE.panelBorder });
+  const items = [
+    { key: 'home', label: '大厅', icon: '🏠' },
+    { key: 'rank', label: '排行榜', icon: '🏆' },
+    { key: 'profile', label: '我的', icon: '👤' },
+  ];
+  const itemW = (rects.W || ctx.canvas.width) / items.length;
+  rects.bottomTabs = [];
+  items.forEach((it, i) => {
+    const ix = i * itemW;
+    const active = it.key === activeKey;
+    if (active) {
+      ctx.fillStyle = 'rgba(139,105,20,0.10)';
+      ctx.fillRect(ix, y, itemW, tabH);
+    }
+    drawText(ctx, it.icon, ix + itemW / 2, y + 26, { color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 20, align: 'center' });
+    drawText(ctx, it.label, ix + itemW / 2, y + 48, { color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 12, align: 'center', bold: active });
+    rects.bottomTabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
+  });
+  return rects.bottomTabs;
+}
+
+/**
  * 绘制一枚棋子（统一入口，棋盘与预览共用）。
  * opts:
  *   x, y, r       中心与半径（逻辑像素）
@@ -283,4 +316,5 @@ module.exports = {
   drawText,
   drawPiece,
   hit,
+  drawBottomNav,
 };

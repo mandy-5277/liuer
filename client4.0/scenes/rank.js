@@ -4,7 +4,7 @@
  */
 
 const { state } = require('../state');
-const { PALETTE, drawText, drawButton, drawCard, hit, roundRect } = require('../utils/ui');
+const { PALETTE, drawText, drawButton, drawCard, hit, roundRect, drawBottomNav } = require('../utils/ui');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -95,41 +95,11 @@ function onDraw(ctx) {
     });
   });
 
-  drawTabBar(ctx);
-}
-
-function drawTabBar(ctx) {
-  const tabH = 64;
-  const y = H - tabH;
-  drawCard(ctx, { x: 0, y, w: W, h: tabH, radius: 0, border: PALETTE.panelBorder });
-  const items = [
-    { key: 'home', label: '大厅' },
-    { key: 'rank', label: '排行榜' },
-    { key: 'profile', label: '我的' },
-    { key: 'rules', label: '规则' },
-  ];
-  const itemW = W / items.length;
-  rects.bottomTabs = [];
-  items.forEach((it, i) => {
-    const ix = i * itemW;
-    const active = it.key === 'rank';
-    if (active) {
-      ctx.fillStyle = 'rgba(139,105,20,0.10)';
-      ctx.fillRect(ix, y, itemW, tabH);
-    }
-    drawText(ctx, it.label, ix + itemW / 2, y + tabH / 2 + 6, {
-      color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 20, align: 'center', bold: active,
-    });
-    rects.bottomTabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
-  });
+  rects.W = W; rects.H = H;
+  drawBottomNav(ctx, 'rank', rects);
 }
 
 function onTouch(x, y) {
-  if (rects.tabs) {
-    for (const t of rects.tabs) {
-      if (hit(t, x, y)) { switchTab(t.key); return; }
-    }
-  }
   if (rects.bottomTabs) {
     for (const t of rects.bottomTabs) {
       if (hit(t, x, y) && t.key !== 'rank') { sceneMgr.goto(t.key); return; }

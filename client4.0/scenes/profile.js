@@ -4,7 +4,7 @@
  */
 
 const { state } = require('../state');
-const { PALETTE, drawText, drawCard, drawAvatar, hit } = require('../utils/ui');
+const { PALETTE, drawText, drawCard, drawAvatar, hit, drawBottomNav } = require('../utils/ui');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -55,33 +55,8 @@ function onDraw(ctx) {
   drawCard(ctx, { x: rects.rulesBtn.x, y: rects.rulesBtn.y, w: rects.rulesBtn.w, h: rects.rulesBtn.h, radius: 14 });
   drawText(ctx, '游戏规则说明', gx + 16, rects.rulesBtn.y + 38, { color: PALETTE.text, fontSize: 26, bold: true });
 
-  drawTabBar(ctx);
-}
-
-function drawTabBar(ctx) {
-  const tabH = 64;
-  const y = H - tabH;
-  drawCard(ctx, { x: 0, y, w: W, h: tabH, radius: 0, border: PALETTE.panelBorder });
-  const items = [
-    { key: 'home', label: '大厅' },
-    { key: 'rank', label: '排行榜' },
-    { key: 'profile', label: '我的' },
-    { key: 'rules', label: '规则' },
-  ];
-  const itemW = W / items.length;
-  rects.bottomTabs = [];
-  items.forEach((it, i) => {
-    const ix = i * itemW;
-    const active = it.key === 'profile';
-    if (active) {
-      ctx.fillStyle = 'rgba(139,105,20,0.10)';
-      ctx.fillRect(ix, y, itemW, tabH);
-    }
-    drawText(ctx, it.label, ix + itemW / 2, y + tabH / 2 + 6, {
-      color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 20, align: 'center', bold: active,
-    });
-    rects.bottomTabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
-  });
+  rects.W = W; rects.H = H;
+  drawBottomNav(ctx, 'profile', rects);
 }
 
 function onTouch(x, y) {

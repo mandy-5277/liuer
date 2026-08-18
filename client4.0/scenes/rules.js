@@ -4,7 +4,7 @@
  */
 
 const { state } = require('../state');
-const { PALETTE, drawText, drawCard, hit, roundRect, FONT_FAMILY } = require('../utils/ui');
+const { PALETTE, drawText, drawCard, hit, roundRect, FONT_FAMILY, drawBottomNav } = require('../utils/ui');
 const sceneMgr = require('./index');
 
 /** 按最大像素宽度折行，返回字符串数组 */
@@ -144,33 +144,8 @@ function onDraw(ctx) {
     ty += isTitle ? 8 : 4;
   });
 
-  drawTabBar(ctx);
-}
-
-function drawTabBar(ctx) {
-  const tabH = 64;
-  const y = H - tabH;
-  drawCard(ctx, { x: 0, y, w: W, h: tabH, radius: 0, border: PALETTE.panelBorder });
-  const items = [
-    { key: 'home', label: '大厅' },
-    { key: 'rank', label: '排行榜' },
-    { key: 'profile', label: '我的' },
-    { key: 'rules', label: '规则' },
-  ];
-  const itemW = W / items.length;
-  rects.bottomTabs = [];
-  items.forEach((it, i) => {
-    const ix = i * itemW;
-    const active = it.key === 'rules';
-    if (active) {
-      ctx.fillStyle = 'rgba(139,105,20,0.10)';
-      ctx.fillRect(ix, y, itemW, tabH);
-    }
-    drawText(ctx, it.label, ix + itemW / 2, y + tabH / 2 + 6, {
-      color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 20, align: 'center', bold: active,
-    });
-    rects.bottomTabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
-  });
+  rects.W = W; rects.H = H;
+  drawBottomNav(ctx, 'rules', rects);
 }
 
 function onTouch(x, y) {

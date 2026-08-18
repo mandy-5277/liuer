@@ -53,15 +53,13 @@ class WsManager {
       this.isConnected = true;
       this.reconnectCount = 0;
 
-      // 发送登录
+      // 仅发送登录请求，业务指令必须等 login_success 回执后再发，
+      // 否则服务端还未将该连接注册到 wsMap，会返回"请先登录"。
       const nickName = this._pendingNickName || '';
       const avatarUrl = this._pendingAvatarUrl || '';
       this.send('login', { openid: this.openid, nickName, avatarUrl });
 
-      // 发送积压消息
-      this._flushPendingQueue();
-
-      // resolve connect() Promise
+      // resolve connect() Promise（仅表示 socket 已打开，不代表已登录）
       if (this._connectResolve) {
         this._connectResolve();
         this._connectResolve = null;
@@ -72,12 +70,15 @@ class WsManager {
     wx.onSocketMessage((res) => {
       try {
         const msg = JSON.parse(res.data);
-        console.log('[WS] 收到:', msg.cmd);
+        console.log('[WS] 收到:', msg.cmd, msg.data);
 
-        // 收到 login_success 后启动心跳
-        if (msg.cmd === 'login_success' && !this._heartbeatStarted) {
-          this._heartbeatStarted = true;
-          this._startHeartbeat();
+        // 收到 login_success 后启动心跳，并 flush 积压的业务指令
+        if (msg.cmd === 'login_success') {
+          if (!this._heartbeatStarted) {
+            this._heartbeatStarted = true;
+            this._startHeartbeat();
+          }
+          this._flushPendingQueue();
         }
 
         this._handleMessage(msg);

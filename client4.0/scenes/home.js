@@ -8,7 +8,7 @@
 
 const { wsManager } = require('../utils/websocket');
 const { state } = require('../state');
-const { PALETTE, drawButton, drawText, drawCard, drawAvatar, hit, roundRect } = require('../utils/ui');
+const { PALETTE, drawButton, drawText, drawCard, drawAvatar, hit, roundRect, drawBottomNav } = require('../utils/ui');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -102,7 +102,8 @@ function onDraw(ctx) {
   drawCenter(ctx);
   drawProfileCard(ctx);
   drawRuleLink(ctx);
-  drawBottomNav(ctx);
+  rects.W = W; rects.H = H;
+  drawBottomNav(ctx, 'home', rects);
 
   if (overlay === 'matching') drawMatchingOverlay(ctx);
   else if (overlay === 'room') drawRoomOverlay(ctx);
@@ -257,30 +258,6 @@ function drawRuleLink(ctx) {
   drawText(ctx, '游戏规则 ▶', W / 2, H - 60, { color: PALETTE.textDim, fontSize: 15, align: 'center' });
 }
 
-function drawBottomNav(ctx) {
-  const tabH = 64;
-  const y = H - tabH;
-  drawCard(ctx, { x: 0, y, w: W, h: tabH, radius: 0, border: PALETTE.panelBorder });
-  const items = [
-    { key: 'home', label: '首页', icon: '🏠' },
-    { key: 'rank', label: '排行榜', icon: '🏆' },
-    { key: 'profile', label: '我的', icon: '👤' },
-  ];
-  const itemW = W / items.length;
-  rects.tabs = [];
-  items.forEach((it, i) => {
-    const ix = i * itemW;
-    const active = it.key === 'home';
-    if (active) {
-      ctx.fillStyle = 'rgba(139,105,20,0.10)';
-      ctx.fillRect(ix, y, itemW, tabH);
-    }
-    drawText(ctx, it.icon, ix + itemW / 2, y + 26, { color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 20, align: 'center' });
-    drawText(ctx, it.label, ix + itemW / 2, y + 48, { color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 12, align: 'center', bold: active });
-    rects.tabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
-  });
-}
-
 // ========== 匹配浮层 ==========
 function drawMatchingOverlay(ctx) {
   dim(ctx);
@@ -366,8 +343,8 @@ function onTouch(x, y) {
   if (hit(rects.match, x, y)) { startMatch(); return; }
   if (hit(rects.friend, x, y)) { openInvite(); return; }
   if (hit(rects.ruleLink, x, y)) { sceneMgr.goto('rules'); return; }
-  if (rects.tabs) {
-    for (const t of rects.tabs) {
+  if (rects.bottomTabs) {
+    for (const t of rects.bottomTabs) {
       if (hit(t, x, y) && t.key !== 'home') { sceneMgr.goto(t.key); return; }
     }
   }
