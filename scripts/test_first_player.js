@@ -44,8 +44,8 @@ function simulate(blackCatch, whiteCatch) {
   engine._advanceCaptureTurn();
 
   const stage2First = engine.currentTurn;
-  const stage2ActualCatch =
-    stage2First === BLACK ? engine.blackCatchNum : engine.whiteCatchNum;
+  // 阶段2实际揪子数，按"黑/白"格式展示双方各自的剩余可揪数
+  const stage2CatchBW = `${engine.blackCatchNum}/${engine.whiteCatchNum}`;
 
   if (engine.stage !== Stage.MOVING) {
     engine.enterMoveStage(stage2First);
@@ -54,7 +54,7 @@ function simulate(blackCatch, whiteCatch) {
 
   return {
     stage2First: cn(stage2First),
-    stage2ActualCatch,
+    stage2CatchBW,
     stage3First: cn(stage3First),
     captureFirstPlayer: cn(engine.captureFirstPlayer),
   };
@@ -64,7 +64,7 @@ function runCase(idx, blackCatch, whiteCatch) {
   const r = simulate(blackCatch, whiteCatch);
   console.log(`Case${idx}: catch B/W=${blackCatch}/${whiteCatch}`);
   console.log(
-    `  phase2 first=${r.stage2First}, phase2 actual catch=${r.stage2ActualCatch}, ` +
+    `  phase2 first=${r.stage2First}, phase2 actual catch=${r.stage2CatchBW}, ` +
     `phase3 first=${r.stage3First} (captureFirstPlayer=${r.captureFirstPlayer})`
   );
   return r;
@@ -87,19 +87,19 @@ const A = (name, cond) => {
 console.log('\n=== Assertions ===');
 // phase2 first: BLACK 除非 black 可揪=0（跳到 WHITE）
 A('C1 phase2=BLACK', c1.stage2First === 'BLACK');
-A('C1 phase2 actual catch=4', c1.stage2ActualCatch === 4);
+A('C1 phase2 actual catch=4/0', c1.stage2CatchBW === '4/0');
 A('C1 phase3=BLACK', c1.stage3First === 'BLACK');
 
 A('C2 phase2=WHITE (black 0 -> skip)', c2.stage2First === 'WHITE');
-A('C2 phase2 actual catch=4', c2.stage2ActualCatch === 4);
+A('C2 phase2 actual catch=0/4', c2.stage2CatchBW === '0/4');
 A('C2 phase3=BLACK (fixed)', c2.stage3First === 'BLACK');
 
 A('C3 phase2=BLACK (fallback 1/1)', c3.stage2First === 'BLACK');
-A('C3 phase2 actual catch=1', c3.stage2ActualCatch === 1);
+A('C3 phase2 actual catch=1/1', c3.stage2CatchBW === '1/1');
 A('C3 phase3=BLACK', c3.stage3First === 'BLACK');
 
 A('C4 phase2=BLACK', c4.stage2First === 'BLACK');
-A('C4 phase2 actual catch=4', c4.stage2ActualCatch === 4);
+A('C4 phase2 actual catch=4/4', c4.stage2CatchBW === '4/4');
 A('C4 phase3=BLACK', c4.stage3First === 'BLACK');
 
 console.log(fail === 0 ? '\nALL PASS ✅' : `\n${fail} FAILED ❌`);
