@@ -16,9 +16,10 @@ let H = 812;
 let rects = {};
 
 // 浮层状态
-let overlay = null;          // null | 'matching' | 'room' | 'invite'
+let overlay = null;          // null | 'matching' | 'room' | 'inroom'
 let overlayTab = 'create';   // 'create' 复制房间号 | 'join' 进入房间
 let roomCode = '';
+let roomRole = '';           // 'creator' | 'joiner'（等待房间时）
 let joinInput = '';           // 进入房间输入的房间号
 let joinError = '';
 const inviters = [];          // 收到的邀请 { roomId, nickName }
@@ -54,18 +55,32 @@ function registerWs() {
     sceneMgr.goto('match', data);
   });
   wsManager.on('room_created', (data) => {
-    overlay = 'room';
-    overlayTab = 'create';
+    overlay = 'inroom';
+    roomRole = 'creator';
     roomCode = data.roomId;
   });
   wsManager.on('opponent_joined', (data) => {
     roomCode = data.roomId;
   });
+  wsManager.on('join_room_success', (data) => {
+    overlay = 'inroom';
+    roomRole = 'joiner';
+    roomCode = data.roomId;
+  });
+  wsManager.on('room_cancelled', () => {
+    if (overlay === 'inroom') {
+      wx.showToast({ title: '对方已离开房间', icon: 'none' });
+      overlay = null;
+      roomCode = '';
+      roomRole = '';
+    }
+  });
   wsManager.on('room_expired', () => {
-    if (overlay === 'room' && overlayTab === 'create') {
+    if (overlay === 'inroom' && roomRole === 'creator') {
       wx.showToast({ title: '房间已过期，请重新创建', icon: 'none' });
       overlay = null;
       roomCode = '';
+      roomRole = '';
     }
   });
   wsManager.on('invite_received', (data) => {
@@ -96,6 +111,7 @@ function onDraw(ctx) {
 
   if (overlay === 'matching') drawMatchingOverlay(ctx);
   else if (overlay === 'room') drawRoomOverlay(ctx);
+  else if (overlay === 'inroom') drawInRoomOverlay(ctx);
 }
 
 function drawBackground(ctx) {
@@ -341,6 +357,35 @@ function drawJoinTab(ctx, px, py, pw) {
   rects.doJoin = drawButton(ctx, { text: '进入房间', x: px + 40, y: iy + ih + 36, w: pw - 80, h: 52, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 22 });
 }
 
+// ========== 房间等待浮层（房主/加入者统一） ==========
+function drawInRoomOverlay(ctx) {
+  dim(ctx);
+  const pw = W * 0.86, ph = 360, px = (W - pw) / 2, py = (H - ph) / 2;
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
+
+  // 关闭（退出房间）
+  rects.closeRoom = { x: px + pw - 40, y: py + 12, w: 28, h: 28 };
+  drawText(ctx, '✕', px + pw - 26, py + 32, { color: PALETTE.textDim, fontSize: 22, align: 'center' });
+
+  drawText(ctx, '房间等待中', W / 2, py + 46, { color: PALETTE.text, fontSize: 26, align: 'center', bold: true });
+
+  const y = py + 120;
+  drawText(ctx, '房间号', W / 2, y, { color: PALETTE.textDim, fontSize: 18, align: 'center' });
+  drawText(ctx, roomCode, W / 2, y + 44, { color: PALETTE.gold, fontSize: 46, align: 'center', bold: true });
+
+  const tip = roomRole === 'creator' ? '等待好友输入房间号加入…' : '已加入房间，等待房主开始…';
+  drawText(ctx, tip, W / 2, y + 92, { color: PALETTE.textDim, fontSize: 16, align: 'center' });
+
+  if (roomRole === 'creator') {
+    rects.copyRoom = drawButton(ctx, { text: '复制房间号', x: px + 40, y: y + 116, w: pw - 80, h: 52, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 22 });
+    rects.shareRoom = drawButton(ctx, { text: '分享房间号给好友', x: px + 40, y: y + 180, w: pw - 80, h: 52, fill: PALETTE.panel, textColor: PALETTE.green, fontSize: 22, border: PALETTE.green });
+  } else {
+    rects.shareRoom = drawButton(ctx, { text: '邀请好友一起来', x: px + 40, y: y + 116, w: pw - 80, h: 52, fill: PALETTE.panel, textColor: PALETTE.green, fontSize: 22, border: PALETTE.green });
+  }
+
+  rects.leaveRoom = drawButton(ctx, { text: '退出房间', x: px + 40, y: py + ph - 72, w: pw - 80, h: 52, fill: PALETTE.red, textColor: '#FFFFFF', fontSize: 22 });
+}
+
 function dim(ctx) {
   ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
@@ -353,6 +398,7 @@ function onTouch(x, y) {
     return;
   }
   if (overlay === 'room') { handleRoomTouch(x, y); return; }
+  if (overlay === 'inroom') { handleInRoomTouch(x, y); return; }
 
   if (hit(rects.match, x, y)) { startMatch(); return; }
   if (hit(rects.friend, x, y)) { openInvite(); return; }
@@ -399,9 +445,27 @@ function handleRoomTouch(x, y) {
       const code = joinInput.trim();
       if (!code) { joinError = '请输入房间号'; return; }
       wsManager.send('join_room', { roomId: code });
-      overlay = null;
+      overlay = 'inroom';
+      roomRole = 'joiner';
     }
   }
+}
+
+function handleInRoomTouch(x, y) {
+  if (hit(rects.closeRoom, x, y)) { leaveRoom(); return; }
+  if (hit(rects.copyRoom, x, y)) {
+    wx.setClipboardData({ data: roomCode, success: () => wx.showToast({ title: '房间号已复制', icon: 'success' }) });
+    return;
+  }
+  if (hit(rects.shareRoom, x, y)) { shareRoom(); return; }
+  if (hit(rects.leaveRoom, x, y)) { leaveRoom(); return; }
+}
+
+function leaveRoom() {
+  wsManager.send('leave_room', { roomId: roomCode });
+  overlay = null;
+  roomCode = '';
+  roomRole = '';
 }
 
 function startMatch() {
@@ -412,6 +476,8 @@ function startMatch() {
 
 function openInvite() {
   if (state.energy.current < 5) { wx.showToast({ title: '精力不足，请等待恢复', icon: 'none' }); return; }
+  // 已创建房间仍在等待 → 直接回到等待界面
+  if (roomCode && overlay === 'inroom' && roomRole === 'creator') { overlay = 'inroom'; return; }
   overlay = 'room';
   overlayTab = 'create';
   if (!roomCode) wsManager.send('invite_room');

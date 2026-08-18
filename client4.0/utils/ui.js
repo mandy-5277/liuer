@@ -27,9 +27,6 @@ const PALETTE = {
   textDim: '#9B8B7A',     // 次要文字
   textOnGold: '#FFF8E8',  // 金底上的文字
 
-  blackPiece: '#3C2F28',  // 黑子（深棕，比纯黑柔和）
-  whitePiece: '#FBF7EF',  // 白子（米白）
-
   // 阶段 / 状态色
   blue: '#4A90D9',
   red: '#D94A4A',
@@ -38,6 +35,41 @@ const PALETTE = {
   // 装饰棋盘点
   boardDot: '#C9BBA4',
 };
+
+/**
+ * 棋子皮肤（用户可自定义，设置页选择，本地持久化）。
+ * 每套皮肤提供 black / white 两色，及各自描边色。
+ * 默认 classic 对应设计稿近黑/近白。
+ */
+const PIECE_SKINS = {
+  classic: {
+    label: '经典',
+    black: { fill: '#1A1A1A', stroke: '#000000' },
+    white: { fill: '#FEFEFE', stroke: '#D0D0D0' },
+  },
+  warm: {
+    label: '暖棕',
+    black: { fill: '#3C2F28', stroke: '#2A2018' },
+    white: { fill: '#FBF7EF', stroke: '#E0D6C4' },
+  },
+  nature: {
+    label: '自然',
+    black: { fill: '#6B6B6B', stroke: '#4A4A4A' },   // 石子灰
+    white: { fill: '#E8D8B0', stroke: '#C9B58A' },   // 树枝米
+  },
+};
+
+const DEFAULT_PIECE_SKIN = 'classic';
+
+/** 读取当前棋子颜色对（供棋盘绘制使用） */
+function getPieceColors(skinKey) {
+  const skin = PIECE_SKINS[skinKey] || PIECE_SKINS[DEFAULT_PIECE_SKIN];
+  return {
+    black: skin.black,
+    white: skin.white,
+    label: skin.label,
+  };
+}
 
 /** 圆角矩形路径 */
 function roundRect(ctx, x, y, w, h, r) {
@@ -170,13 +202,85 @@ function hit(rect, px, py) {
   return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
 }
 
+/**
+ * 绘制一枚棋子（统一入口，棋盘与预览共用）。
+ * opts:
+ *   x, y, r       中心与半径（逻辑像素）
+ *   color         'black' | 'white'
+ *   skinKey       皮肤 key（默认 classic）
+ *   selected      走子阶段选中 → 绿色外圈 2px
+ *   capturable    揪子阶段可揪 → 红色脉冲光晕（pulse 0~1 控制扩缩）
+ *   formed        成型棋子 → 加锁小角标
+ *   pulse         脉冲动画相位 0~1（用于 capturable 光晕）
+ */
+function drawPiece(ctx, opts) {
+  const {
+    x, y, r,
+    color = 'black',
+    skinKey = DEFAULT_PIECE_SKIN,
+    selected = false,
+    capturable = false,
+    formed = false,
+    pulse = 0,
+  } = opts;
+
+  const colors = getPieceColors(skinKey)[color] || PIECE_SKINS[DEFAULT_PIECE_SKIN][color];
+
+  // 可揪红色脉冲光晕
+  if (capturable) {
+    const t = (pulse % 1 + 1) % 1;
+    const haloR = r + 4 + t * 8;
+    ctx.beginPath();
+    ctx.arc(x, y, haloR, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(217,74,74,${0.35 * (1 - t)})`;
+    ctx.fill();
+  }
+
+  // 阴影
+  ctx.beginPath();
+  ctx.arc(x, y + 2, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(60,47,40,0.18)';
+  ctx.fill();
+
+  // 棋子本体
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = colors.fill;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = colors.stroke;
+  ctx.stroke();
+
+  // 走子选中：绿色外圈
+  if (selected) {
+    ctx.beginPath();
+    ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = PALETTE.green;
+    ctx.stroke();
+  }
+
+  // 成型锁角标
+  if (formed) {
+    ctx.fillStyle = 'rgba(60,47,40,0.55)';
+    ctx.font = `${Math.round(r * 0.7)}px ${FONT_FAMILY}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🔒', x, y);
+  }
+}
+
 module.exports = {
   PALETTE,
   FONT_FAMILY,
+  PIECE_SKINS,
+  DEFAULT_PIECE_SKIN,
+  getPieceColors,
   roundRect,
   drawCard,
   drawAvatar,
   drawButton,
   drawText,
+  drawPiece,
   hit,
 };

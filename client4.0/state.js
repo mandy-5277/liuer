@@ -34,7 +34,18 @@ const state = {
 
   // 排行榜/统计等缓存
   rankList: [],
+
+  // 棋子皮肤（用户自定义）：classic / warm / nature，本地持久化
+  pieceSkin: (() => {
+    try { return wx.getStorageSync('pieceSkin') || 'classic'; } catch (e) { return 'classic'; }
+  })(),
 };
+
+/** 设置并持久化棋子皮肤 */
+function setPieceSkin(skinKey) {
+  state.pieceSkin = skinKey;
+  try { wx.setStorageSync('pieceSkin', skinKey); } catch (e) { /* ignore */ }
+}
 
 /**
  * 登录流程：
@@ -162,5 +173,6 @@ module.exports = {
   state,
   init,
   syncUserData,
+  setPieceSkin,
   getState: () => state,
 };

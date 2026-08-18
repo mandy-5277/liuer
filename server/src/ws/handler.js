@@ -50,6 +50,9 @@ async function dispatch(ws, msg) {
       case 'join_room':
         await handleJoinRoom(ws, data);
         break;
+      case 'leave_room':
+        await handleLeaveRoom(ws, data);
+        break;
 
       // ========== 对局操作 ==========
       case 'place_piece':
@@ -269,7 +272,17 @@ async function handleJoinRoom(ws, data) {
     sendToPlayer(openid, { cmd: 'error', data: { errMsg: '请输入房间号' } });
     return;
   }
-  await joinRoomByCode(openid, roomId);
+  const res = await joinRoomByCode(openid, roomId);
+  if (!res || !res.success) {
+    sendToPlayer(openid, { cmd: 'error', data: { errMsg: (res && res.errMsg) || '加入房间失败' } });
+  }
+}
+
+async function handleLeaveRoom(ws, data) {
+  const openid = getOpenid(ws);
+  if (!openid) return;
+  const roomId = data && data.roomId;
+  await leaveRoom(openid, roomId);
 }
 
 // ========== 用户数据处理 ==========

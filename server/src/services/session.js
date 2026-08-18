@@ -256,6 +256,29 @@ async function joinRoomByCode(joinerUid, roomId) {
   return { success: true };
 }
 
+// ========== 退出房间 ==========
+/** 房主或加入者退出房间，通知对方并清理 */
+async function leaveRoom(uid, roomId) {
+  let rm = null;
+  if (roomId) {
+    rm = roomMap.get(roomId);
+  } else {
+    // 未带 roomId 时按 uid 反查
+    for (const [rid, r] of roomMap.entries()) {
+      if (r.creatorUid === uid || r.joinerUid === uid) { rm = r; roomId = rid; break; }
+    }
+  }
+  if (rm) {
+    const otherUid = rm.creatorUid === uid ? rm.joinerUid : rm.creatorUid;
+    if (otherUid) {
+      sendToPlayer(otherUid, { cmd: 'room_cancelled', data: { roomId } });
+    }
+    try { roomService.cancelRoom(rm.roomDocId); } catch (e) { /* ignore */ }
+    roomMap.delete(roomId);
+  }
+  return { success: true };
+}
+
 // ========== 对局管理 ==========
 
 /** 开始对局 */
@@ -600,6 +623,7 @@ module.exports = {
   cancelMatching,
   createInviteRoom,
   joinRoomByCode,
+  leaveRoom,
   startGame,
   handleGameAction,
   finalizeGame,

@@ -6,7 +6,9 @@
 
 const { wsManager } = require('../utils/websocket');
 const { state } = require('../state');
-const { PALETTE, drawText, drawButton, drawCard, drawAvatar, hit, roundRect } = require('../utils/ui');
+const ui = require('../utils/ui');
+const { PALETTE, drawText, drawButton, drawCard, drawAvatar, hit, roundRect, PIECE_SKINS } = ui;
+const { setPieceSkin } = require('../state');
 const gameCore = require('../utils/game-core');
 const sceneMgr = require('./index');
 
@@ -23,7 +25,7 @@ const game = {
   moveCaptureMode: false, boardPieces: [], legalCells: [], selectedPieceIndex: -1,
   skipAvailable: false, drawPaused: false, showSettle: false, settleData: {},
   myResult: '', scoreChange: 0, drawRequestBy: '', drawRequestName: '',
-  showDrawRequest: false, showGiveUpConfirm: false, boardFlipped: false,
+  showDrawRequest: false, showGiveUpConfirm: false, showSettings: false, boardFlipped: false,
   timerText: '00:00', timeLow: false, timerProgress: 100,
 };
 
@@ -72,7 +74,7 @@ function onEnter(payload) {
     timerProgress: calcTimerProgress(remainingTime),
     catchNums: { black: 0, white: 0 }, board: [], boardPieces: [],
     legalCells: [], selectedPieceIndex: -1, skipAvailable: false,
-    showSettle: false, drawPaused: false, showDrawRequest: false, showGiveUpConfirm: false,
+    showSettle: false, drawPaused: false, showDrawRequest: false, showGiveUpConfirm: false, showSettings: false,
   });
 
   updateBoardPieces(gameData.board || []);
@@ -268,7 +270,43 @@ function onDraw(ctx) {
 
   if (game.showDrawRequest) drawDrawRequest(ctx);
   if (game.showGiveUpConfirm) drawGiveUpConfirm(ctx);
+  if (game.showSettings) drawSetModal(ctx);
   if (game.showSettle) drawSettle(ctx);
+}
+
+// 设置弹窗：音效/震动开关 + 棋子皮肤选择（三套预览）
+function drawSetModal(ctx) {
+  ctx.fillStyle = 'rgba(60,47,40,0.5)';
+  ctx.fillRect(0, 0, W, H);
+  const pw = W * 0.86, ph = 360, px = (W - pw) / 2, py = (H - ph) / 2;
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 18 });
+  drawText(ctx, { text: '对局设置', x: W / 2, y: py + 34, fontSize: 30,
+    color: PALETTE.text, align: 'center', bold: true });
+
+  // 棋子皮肤
+  drawText(ctx, { text: '棋子皮肤', x: px + 24, y: py + 78, fontSize: 22,
+    color: PALETTE.textDim, align: 'left' });
+  const skins = ['classic', 'warm', 'nature'];
+  const sw = (pw - 48 - 2 * 16) / 3;
+  rects.skinBtns = [];
+  skins.forEach((key, i) => {
+    const bx = px + 24 + i * (sw + 16);
+    const by = py + 100;
+    const selected = state.pieceSkin === key;
+    drawCard(ctx, { x: bx, y: by, w: sw, h: 92, radius: 12,
+      border: selected ? PALETTE.green : PALETTE.panelBorder,
+      borderWidth: selected ? 3 : 1.5 });
+    // 黑白两子预览
+    ui.drawPiece(ctx, { x: bx + sw / 2 - 16, y: by + 38, r: 15, color: 'black', skinKey: key });
+    ui.drawPiece(ctx, { x: bx + sw / 2 + 16, y: by + 38, r: 15, color: 'white', skinKey: key });
+    drawText(ctx, { text: ui.PIECE_SKINS[key].label, x: bx + sw / 2, y: by + 74,
+      fontSize: 18, color: PALETTE.text, align: 'center' });
+    rects.skinBtns.push({ x: bx, y: by, w: sw, h: 92, key });
+  });
+
+  // 关闭
+  rects.closeSettings = drawButton(ctx, { text: '完成', x: px + 24, y: py + ph - 64,
+    w: pw - 48, h: 48, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 24 });
 }
 
 // 顶部双方姓名卡（白底描边）+ 各自"可揪/剩余"徽标
@@ -352,54 +390,59 @@ function drawBoard(ctx) {
     }
   }
 
-  if (game.legalCells && game.legalCells.length) {
-    ctx.fillStyle = PALETTE.green;
-    game.legalCells.forEach((cell) => {
-      ctx.beginPath();
-      ctx.arc(ox + cell.x * step, oy + cell.y * step, 8, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  }
+  const myColorStr = game.myColor === 1 ? 'black' : 'white';
+  const pulse = (Date.now() % 1200) / 1200;
 
   game.boardPieces.forEach((p) => {
     const px = ox + p.c * step;
     const py = oy + p.r * step;
-    const radius = step * 0.38;
-    // 阴影感
-    ctx.beginPath();
-    ctx.arc(px, py + 2, radius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(60,47,40,0.18)';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(px, py, radius, 0, Math.PI * 2);
-    ctx.fillStyle = p.color === 'black' ? PALETTE.blackPiece : PALETTE.whitePiece;
-    ctx.fill();
-    if (p.color === 'white') {
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = PALETTE.panelBorder;
-      ctx.stroke();
-    }
-    if (p.selected) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = PALETTE.gold;
-      ctx.stroke();
-    }
+    const radius = step * 0.42; // 放大棋子以提升点击命中（设计稿 36px 基准）
+    const isCapturable = game.phase === 'capture' && !game.moveCaptureMode && p.color !== myColorStr;
+    const isSelected = game.phase === 'move' && p.selected;
+    ui.drawPiece(ctx, {
+      x: px, y: py, r: radius,
+      color: p.color,
+      skinKey: state.pieceSkin,
+      selected: isSelected,
+      capturable: isCapturable,
+      formed: p.formed,
+      pulse,
+    });
   });
+
+  // 走子阶段合法落点：浅绿虚线圈
+  if (game.phase === 'move' && game.legalCells && game.legalCells.length) {
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(74,184,106,0.9)';
+    game.legalCells.forEach((cell) => {
+      ctx.beginPath();
+      ctx.arc(ox + cell.x * step, oy + cell.y * step, step * 0.42 * 0.55, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+  }
 }
 
 function drawBottomActions(ctx) {
-  const btnW = (W - 80) / 3;
+  const btnW = (W - 100) / 4;
   const btnH = 50;
   const y = H - 90;
   const gap = 20;
   rects.actionBtns = [];
 
-  rects.actionBtns.push(drawButton(ctx, { text: '求和', x: 20, y, w: btnW, h: btnH,
-    fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 24, border: PALETTE.gold }));
-  rects.actionBtns.push(drawButton(ctx, { text: '认输', x: 20 + (btnW + gap), y, w: btnW, h: btnH,
-    fill: PALETTE.panel, textColor: PALETTE.red, fontSize: 24, border: PALETTE.red }));
-  rects.actionBtns.push(drawButton(ctx, { text: '退出', x: 20 + 2 * (btnW + gap), y, w: btnW, h: btnH,
-    fill: PALETTE.panel, textColor: PALETTE.textDim, fontSize: 24, border: PALETTE.panelBorder }));
+  const defs = [
+    { text: '求和', color: PALETTE.gold },
+    { text: '认输', color: PALETTE.red },
+    { text: '退出', color: PALETTE.textDim },
+    { text: '设置', color: PALETTE.gold },
+  ];
+  defs.forEach((d, i) => {
+    rects.actionBtns.push(drawButton(ctx, {
+      text: d.text, x: 20 + i * (btnW + gap), y, w: btnW, h: btnH,
+      fill: PALETTE.panel, textColor: d.color, fontSize: 22, border: d.color,
+    }));
+  });
 
   if (game.skipAvailable || game.moveCaptureMode) {
     rects.skipBtn = drawButton(ctx, { text: '跳过连揪', x: (W - 160) / 2, y: y - 64, w: 160, h: 48,
@@ -472,6 +515,19 @@ function onTouch(x, y) {
     else if (hit(rects.cancelGiveUp, x, y)) { game.showGiveUpConfirm = false; }
     return;
   }
+  if (game.showSettings) {
+    if (rects.skinBtns) {
+      for (const b of rects.skinBtns) {
+        if (hit(b, x, y)) {
+          setPieceSkin(b.key);
+          game.showSettings = false;
+          return;
+        }
+      }
+    }
+    if (hit(rects.closeSettings, x, y)) { game.showSettings = false; return; }
+    return;
+  }
 
   if (hit(rects.skipBtn, x, y) && (game.skipAvailable || game.moveCaptureMode)) {
     wsManager.send('skip_capture');
@@ -482,6 +538,7 @@ function onTouch(x, y) {
     if (hit(rects.actionBtns[0], x, y)) { requestDraw(); return; }
     if (hit(rects.actionBtns[1], x, y)) { game.showGiveUpConfirm = true; return; }
     if (hit(rects.actionBtns[2], x, y)) { sceneMgr.goto('home'); return; }
+    if (hit(rects.actionBtns[3], x, y)) { game.showSettings = true; return; }
   }
 
   const { ox, oy, step } = boardGeo;
@@ -526,16 +583,25 @@ function handleCaptureTouch(r, c) {
 function handleMoveTouch(r, c) {
   if (game.moveCaptureMode) { handleCaptureTouch(r, c); return; }
   const p = pieceAt(r, c);
-  if (!p) return;
   const myColorStr = game.myColor === 1 ? 'black' : 'white';
-  if (p.color !== myColorStr) {
-    wx.showToast({ title: '不能移动对方的棋子', icon: 'none' });
+
+  // 点击己方棋子：选中并高亮可移动位置
+  if (p && p.color === myColorStr) {
+    const idx = game.boardPieces.findIndex((piece) => piece.r === r && piece.c === c);
+    if (idx >= 0) selectPiece(idx);
     return;
   }
+
   if (game.selectedPieceIndex < 0) {
     wx.showToast({ title: '请先选择要移动的棋子', icon: 'none' });
     return;
   }
+
+  if (p && p.color !== myColorStr) {
+    wx.showToast({ title: '不能移动对方的棋子', icon: 'none' });
+    return;
+  }
+
   const piece = game.boardPieces[game.selectedPieceIndex];
   if (!piece) return;
   const isLegal = game.legalCells.some((cell) => cell.x === c && cell.y === r);
@@ -544,6 +610,18 @@ function handleMoveTouch(r, c) {
     return;
   }
   wsManager.send('move_piece', { fromR: piece.r, fromC: piece.c, toR: r, toC: c });
+}
+
+function selectPiece(index) {
+  game.boardPieces.forEach((p, i) => { p.selected = (i === index); });
+  game.selectedPieceIndex = index;
+  const piece = game.boardPieces[index];
+  if (!piece) {
+    game.legalCells = [];
+    return;
+  }
+  const moves = gameCore.computeLegalMoves(piece.r, piece.c, game.board || []);
+  game.legalCells = moves.map((m) => ({ x: m.c, y: m.r }));
 }
 
 function pieceAt(r, c) {
