@@ -13,7 +13,7 @@
  * 切生产只需把 USE_WSS 改为 true（域名/证书就绪后）。
  */
 const PROD_DOMAIN = 'liuer.xin';
-const USE_WSS = false; // ← 域名解析+ICP备案完成后改为 true
+const USE_WSS = true; // 域名解析+ICP备案已完成，走 wss://liuer.xin/ws
 
 const SERVER_BASE = USE_WSS
   ? 'https://' + PROD_DOMAIN
