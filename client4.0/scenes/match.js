@@ -47,6 +47,8 @@ function calcTimerProgress(remainingTime) {
 
 function onEnter(payload) {
   const gameData = (payload && payload.gameId) ? payload : state.currentGame;
+  // 进入新对局前，先清掉旧对局残留的 WS 监听器，避免收到旧消息
+  removeWs();
   if (!gameData) {
     wx.showToast({ title: '对局数据丢失', icon: 'none' });
     setTimeout(() => sceneMgr.goto('home'), 1500);
@@ -118,6 +120,8 @@ function removeWs() {
   wsManager.off('draw_request', onDrawRequest);
   wsManager.off('game_settle', onGameSettle);
   wsManager.off('game_snapshot', onGameSnapshot);
+  wsManager.off('timeout_warning');
+  wsManager.off('opponent_disconnected');
   wsManager.off('error', onError);
 }
 
@@ -180,6 +184,11 @@ function onDrawRequest(data) {
 }
 
 function onGameSettle(data) {
+  // 只处理当前对局的结算，忽略旧对局/其它对局的消息
+  if (data && data.gameId && game.gameId && data.gameId !== game.gameId) {
+    console.log('[Match] 收到非当前对局的结算消息，已忽略:', data.gameId);
+    return;
+  }
   const myColor = game.myColor;
   let myResult = '';
   let scoreChange = 0;

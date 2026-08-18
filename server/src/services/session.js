@@ -608,7 +608,7 @@ async function finalizeGame(gameId, settleResult) {
   ]) {
     if (user && (user.lastSigninDate !== today || (user.dailyCopperEarned || 0) < gameConfig.maxCopperPerDay)) {
       await userService.updateDailyCopper(player.openid, gameConfig.copperPerGame);
-      await transactionService.record(player.openid, 'game', gameConfig.copperPerGame, gameId, '完成对局');
+      await transactionService.record(player.openid, 'game', gameConfig.copperPerGame, '完成对局', (user.copper || 0) + gameConfig.copperPerGame);
     }
   }
 

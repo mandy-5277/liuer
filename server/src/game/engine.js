@@ -210,6 +210,9 @@ class GameEngine {
     this.captureFirstPlayer = BLACK; // 下子白先→揪子黑先
     this.currentTurn = this.captureFirstPlayer;
 
+    // 自动跳过揪子次数为 0 的玩家（无需手动点一下）
+    this._advanceCaptureTurn();
+
     this.stage = Stage.CAPTURING;
     this.turnStartTime = Date.now();
 
@@ -225,6 +228,38 @@ class GameEngine {
       currentTurn: this.currentTurn,
       formedCells: [...formedCells], // 转为数组方便传输
     };
+  }
+
+  /**
+   * 自动推进揪子回合：跳过揪子次数已耗尽的玩家。
+   * 当 currentTurn 指向揪子数为 0 的玩家时，直接切换到另一方，
+   * 无需该玩家手动点击。注意：不改变 captureFirstPlayer（阶段3先手基准）。
+   */
+  _advanceCaptureTurn() {
+    const startColor = this.currentTurn;
+    let guard = 0;
+    while (guard < 4) {
+      guard++;
+      const k = this.currentTurn === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
+      if (this[k] > 0) return; // 当前玩家还有次数，正常轮到他
+      // 当前玩家无次数，切换到对手
+      const opponent = this.getOpponentColor(this.currentTurn);
+      const oppKey = opponent === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
+      if (this[oppKey] <= 0) {
+        // 双方都已无次数，进入走子阶段
+        this.enterMoveStage(this.currentTurn);
+        return;
+      }
+      this.currentTurn = opponent;
+      if (this.currentTurn === startColor) {
+        // 绕回起点，说明双方都无有效次数
+        const k2 = this.currentTurn === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
+        if (this[k2] <= 0) {
+          this.enterMoveStage(this.currentTurn);
+          return;
+        }
+      }
+    }
   }
 
   // ========== 阶段2：揪子 ==========
@@ -265,22 +300,17 @@ class GameEngine {
     // 当前玩家揪子次数
     const myCatchKey = color === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
 
-    // 揪子次数已耗尽：自动跳过本轮（阶段2不允许手动操作无次数的回合）
+    // 防御：轮到当前玩家时次数已为 0（理论不会，由 _advanceCaptureTurn 保证）
     if (this[myCatchKey] <= 0) {
       this[myCatchKey] = 0;
-      const opponent = this.getOpponentColor(color);
-      const opponentCatchKey = opponent === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
-      if (this[opponentCatchKey] <= 0) {
-        return this.enterMoveStage(color);
-      }
-      this.currentTurn = opponent;
+      this._advanceCaptureTurn();
       return {
         success: true,
         lastAction: 'capture',
         board: cloneBoard(this.board),
         catchNums: { black: this.blackCatchNum, white: this.whiteCatchNum },
         currentTurn: this.currentTurn,
-        stageChanged: false,
+        stageChanged: this.stage === Stage.MOVING,
         skipped: true,
       };
     }
@@ -302,21 +332,10 @@ class GameEngine {
 
     this.consecutiveTimeouts[color] = 0;
 
-    // 检查当前玩家揪子次数是否耗尽
+    // 当前玩家揪子次数耗尽，自动推进（跳过无次数方，不改变阶段3先手基准）
     if (this[myCatchKey] <= 0) {
       this[myCatchKey] = 0;
-
-      // 切换到对手
-      const opponent = this.getOpponentColor(color);
-      const opponentCatchKey = opponent === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
-
-      if (this[opponentCatchKey] <= 0) {
-        // 双方揪数都归零 → 进入走子阶段
-        return this.enterMoveStage(color);
-      }
-
-      // 对手还有揪子次数，切换
-      this.currentTurn = opponent;
+      this._advanceCaptureTurn();
     }
     // 否则继续当前玩家揪子
 
@@ -329,7 +348,7 @@ class GameEngine {
         white: this.whiteCatchNum,
       },
       currentTurn: this.currentTurn,
-      stageChanged: false,
+      stageChanged: this.stage === Stage.MOVING,
     };
   }
 
