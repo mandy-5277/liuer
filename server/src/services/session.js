@@ -193,14 +193,16 @@ async function joinRoomByCode(joinerUid, roomId) {
     rm.joinerUid = joinerUid;
   }
 
-  // 通知双方
-  const creatorSession = wsMap.get(room.creatorUid);
+  // 通知双方（数据库房间字段为 creatorOpenid）
+  const creatorUid = room.creatorOpenid;
+  const creatorSession = wsMap.get(creatorUid);
   const joinerSession = wsMap.get(joinerUid);
+  console.log(`[Room] joinRoomByCode: joiner=${joinerUid}, creator=${creatorUid}, creatorSession=${!!creatorSession}, joinerSession=${!!joinerSession}`);
 
   const creatorUser = creatorSession ? creatorSession.user : {};
   const joinerUser = joinerSession ? joinerSession.user : {};
 
-  sendToPlayer(room.creatorUid, {
+  sendToPlayer(creatorUid, {
     cmd: 'opponent_joined',
     data: {
       roomId,
@@ -218,7 +220,7 @@ async function joinRoomByCode(joinerUid, roomId) {
     data: {
       roomId,
       opponent: {
-        openid: room.creatorUid,
+        openid: creatorUid,
         nickName: creatorUser.nickName || '',
         avatarUrl: creatorUser.avatarUrl || '',
         rankScore: creatorUser.rankScore || 0,
@@ -228,7 +230,7 @@ async function joinRoomByCode(joinerUid, roomId) {
 
   // 双方就位，自动开始对局
   const creatorPlayer = {
-    openid: room.creatorUid,
+    openid: creatorUid,
     nickName: creatorUser.nickName || '',
     avatarUrl: creatorUser.avatarUrl || '',
     rankScore: creatorUser.rankScore || 0,
