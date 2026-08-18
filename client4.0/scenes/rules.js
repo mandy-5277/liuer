@@ -4,7 +4,7 @@
  */
 
 const { state } = require('../state');
-const { PALETTE, drawText, hit, roundRect } = require('../utils/ui');
+const { PALETTE, drawText, drawCard, hit, roundRect } = require('../utils/ui');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -81,7 +81,7 @@ function onDraw(ctx) {
     const x = i * tw;
     const active = i === tabIndex;
     if (active) {
-      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.fillStyle = 'rgba(139,105,20,0.10)';
       ctx.fillRect(x, state.statusBarHeight + 56, tw, 44);
     }
     drawText(ctx, t, x + tw / 2, state.statusBarHeight + 84, {
@@ -94,7 +94,7 @@ function onDraw(ctx) {
   const ds = 120;
   const dox = (W - ds) / 2;
   const doy = state.statusBarHeight + 120;
-  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.fillStyle = PALETTE.boardDot;
   gridDots.forEach((d) => {
     ctx.beginPath();
     ctx.arc(dox + d.x * (ds / 240), doy + d.y * (ds / 240), 2.5, 0, Math.PI * 2);
@@ -119,8 +119,7 @@ function onDraw(ctx) {
 function drawTabBar(ctx) {
   const tabH = 64;
   const y = H - tabH;
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(0, y, W, tabH);
+  drawCard(ctx, { x: 0, y, w: W, h: tabH, radius: 0, border: PALETTE.panelBorder });
   const items = [
     { key: 'home', label: '大厅' },
     { key: 'rank', label: '排行榜' },
@@ -132,8 +131,12 @@ function drawTabBar(ctx) {
   items.forEach((it, i) => {
     const ix = i * itemW;
     const active = it.key === 'rules';
+    if (active) {
+      ctx.fillStyle = 'rgba(139,105,20,0.10)';
+      ctx.fillRect(ix, y, itemW, tabH);
+    }
     drawText(ctx, it.label, ix + itemW / 2, y + tabH / 2 + 6, {
-      color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 22, align: 'center', bold: active,
+      color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 20, align: 'center', bold: active,
     });
     rects.bottomTabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
   });

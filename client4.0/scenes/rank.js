@@ -4,7 +4,7 @@
  */
 
 const { state } = require('../state');
-const { PALETTE, drawText, drawButton, hit, roundRect } = require('../utils/ui');
+const { PALETTE, drawText, drawButton, drawCard, hit, roundRect } = require('../utils/ui');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -66,7 +66,7 @@ function onDraw(ctx) {
     const x = i * tw;
     const active = i === tabIndex;
     if (active) {
-      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.fillStyle = 'rgba(139,105,20,0.10)';
       ctx.fillRect(x, state.statusBarHeight + 56, tw, 44);
     }
     drawText(ctx, t, x + tw / 2, state.statusBarHeight + 84, {
@@ -80,8 +80,7 @@ function onDraw(ctx) {
   const rowH = 64;
   displayList.forEach((it, i) => {
     const y = listTop + i * rowH;
-    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'transparent';
-    ctx.fillRect(20, y, W - 40, rowH - 8);
+    drawCard(ctx, { x: 16, y, w: W - 32, h: rowH - 8, radius: 12 });
 
     drawText(ctx, '#' + it.rankNo, 40, y + rowH / 2 - 4, {
       color: i < 3 ? PALETTE.gold : PALETTE.textDim, fontSize: 26, bold: true,
@@ -102,8 +101,7 @@ function onDraw(ctx) {
 function drawTabBar(ctx) {
   const tabH = 64;
   const y = H - tabH;
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(0, y, W, tabH);
+  drawCard(ctx, { x: 0, y, w: W, h: tabH, radius: 0, border: PALETTE.panelBorder });
   const items = [
     { key: 'home', label: '大厅' },
     { key: 'rank', label: '排行榜' },
@@ -115,8 +113,12 @@ function drawTabBar(ctx) {
   items.forEach((it, i) => {
     const ix = i * itemW;
     const active = it.key === 'rank';
+    if (active) {
+      ctx.fillStyle = 'rgba(139,105,20,0.10)';
+      ctx.fillRect(ix, y, itemW, tabH);
+    }
     drawText(ctx, it.label, ix + itemW / 2, y + tabH / 2 + 6, {
-      color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 22, align: 'center', bold: active,
+      color: active ? PALETTE.gold : PALETTE.textDim, fontSize: 20, align: 'center', bold: active,
     });
     rects.bottomTabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
   });

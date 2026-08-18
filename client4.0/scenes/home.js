@@ -4,11 +4,12 @@
  *
  * 用 Canvas 绘制：顶部状态栏（段位/精力/铜板）、6x6 棋盘点阵装饰、
  * 随机匹配按钮、好友开局按钮，以及匹配中 / 房间弹窗浮层。
+ * 设计风格：暖金棕国风（figma 设计稿）。
  */
 
 const { wsManager } = require('../utils/websocket');
 const { state } = require('../state');
-const { PALETTE, drawButton, drawText, hit, roundRect } = require('../utils/ui');
+const { PALETTE, drawButton, drawText, drawCard, drawAvatar, hit, roundRect } = require('../utils/ui');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -83,7 +84,7 @@ function onDraw(ctx) {
   H = ctx.canvas.height;
 
   drawBackground(ctx);
-  drawTopBar(ctx);
+  drawTopCard(ctx);
   drawDecoBoard(ctx);
   drawSlogan(ctx);
   drawBottomButtons(ctx);
@@ -100,37 +101,41 @@ function drawBackground(ctx) {
   ctx.fillRect(0, 0, W, H);
 }
 
-function drawTopBar(ctx) {
-  const pad = 20;
+// 顶部：白底描边状态卡（段位 / 精力 / 铜板）
+function drawTopCard(ctx) {
+  const pad = 16;
   const y = state.statusBarHeight + 12;
-  drawText(ctx, state.rankName || '初级小六', pad, y + 14, {
-    color: PALETTE.gold, fontSize: 26, bold: true,
+  const cardH = 72;
+  drawCard(ctx, { x: pad, y, w: W - pad * 2, h: cardH, radius: 16 });
+
+  const cy = y + cardH / 2;
+  // 左侧：段位昵称 + 积分
+  drawText(ctx, state.rankName || '初级小六', pad + 18, cy - 10, {
+    color: PALETTE.gold, fontSize: 22, bold: true,
   });
-  drawText(ctx, '积分 ' + (state.rankScore || 0), pad, y + 42, {
-    color: PALETTE.textDim, fontSize: 20,
+  drawText(ctx, '积分 ' + (state.rankScore || 0), pad + 18, cy + 18, {
+    color: PALETTE.textDim, fontSize: 16,
   });
 
   // 右侧：精力 + 铜板
-  const right = W - pad;
-  drawText(ctx, '精力 ' + state.energy.current + '/' + state.energy.max, right, y + 14, {
-    color: PALETTE.green, fontSize: 20, align: 'right',
+  const right = W - pad - 18;
+  drawText(ctx, '精力 ' + state.energy.current + '/' + state.energy.max, right, cy - 10, {
+    color: PALETTE.green, fontSize: 16, align: 'right',
   });
-  drawText(ctx, '铜板 ' + (state.coins || 0), right, y + 42, {
-    color: PALETTE.gold, fontSize: 20, align: 'right',
+  drawText(ctx, '铜板 ' + (state.coins || 0), right, cy + 18, {
+    color: PALETTE.gold, fontSize: 16, align: 'right',
   });
 }
 
 function drawDecoBoard(ctx) {
-  // 缩小的装饰棋盘，居中偏上
+  // 缩小装饰棋盘，居中偏上，描边白卡
   const size = W * 0.6;
   const ox = (W - size) / 2;
   const oy = H * 0.24;
-  ctx.fillStyle = 'rgba(255,255,255,0.04)';
-  roundRect(ctx, ox - 16, oy - 16, size + 32, size + 32, 20);
-  ctx.fill();
+  drawCard(ctx, { x: ox - 16, y: oy - 16, w: size + 32, h: size + 32, radius: 20 });
 
   const step = size / 5;
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillStyle = PALETTE.boardDot;
   for (let r = 0; r < 6; r++) {
     for (let c = 0; c < 6; c++) {
       ctx.beginPath();
@@ -145,7 +150,7 @@ function drawSlogan(ctx) {
     color: PALETTE.text, fontSize: 52, align: 'center', bold: true,
   });
   drawText(ctx, '下子布局 · 揪子博弈 · 走子决胜', W / 2, H * 0.5 + 36, {
-    color: PALETTE.textDim, fontSize: 22, align: 'center',
+    color: PALETTE.textDim, fontSize: 18, align: 'center',
   });
 }
 
@@ -158,22 +163,21 @@ function drawBottomButtons(ctx) {
 
   rects.match = drawButton(ctx, {
     text: '随机匹配', x: cx, y: y1, w: btnW, h: btnH,
-    fill: PALETTE.gold, textColor: '#3a2c00', fontSize: 30,
+    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 28,
   });
   rects.friend = drawButton(ctx, {
     text: '好友开局', x: cx, y: y2, w: btnW, h: btnH,
-    fill: PALETTE.panelSolid, textColor: PALETTE.text, fontSize: 30,
+    fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 28,
+    border: PALETTE.gold,
   });
 
-  // 底部 tab 栏
   drawTabBar(ctx);
 }
 
 function drawTabBar(ctx) {
   const tabH = 64;
   const y = H - tabH;
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(0, y, W, tabH);
+  drawCard(ctx, { x: 0, y, w: W, h: tabH, radius: 0, border: PALETTE.panelBorder });
   const items = [
     { key: 'home', label: '大厅' },
     { key: 'rank', label: '排行榜' },
@@ -185,55 +189,53 @@ function drawTabBar(ctx) {
   items.forEach((it, i) => {
     const ix = i * itemW;
     const active = it.key === 'home';
+    if (active) {
+      ctx.fillStyle = 'rgba(139,105,20,0.10)';
+      ctx.fillRect(ix, y, itemW, tabH);
+    }
     drawText(ctx, it.label, ix + itemW / 2, y + tabH / 2 + 6, {
       color: active ? PALETTE.gold : PALETTE.textDim,
-      fontSize: 22, align: 'center', bold: active,
+      fontSize: 20, align: 'center', bold: active,
     });
     rects.tabs.push({ key: it.key, x: ix, y, w: itemW, h: tabH });
   });
 }
 
 function drawMatchingOverlay(ctx) {
-  // 半透明遮罩
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
 
   const pw = W * 0.8;
   const ph = 240;
   const px = (W - pw) / 2;
   const py = (H - ph) / 2;
-  ctx.fillStyle = PALETTE.panelSolid;
-  roundRect(ctx, px, py, pw, ph, 24);
-  ctx.fill();
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
 
   drawText(ctx, '匹配中...', W / 2, py + 70, {
-    color: PALETTE.text, fontSize: 36, align: 'center', bold: true,
+    color: PALETTE.text, fontSize: 34, align: 'center', bold: true,
   });
   drawText(ctx, '正在为你寻找对手', W / 2, py + 120, {
-    color: PALETTE.textDim, fontSize: 24, align: 'center',
+    color: PALETTE.textDim, fontSize: 22, align: 'center',
   });
 
-  // 旋转的提示点（简单动画靠帧计数）
   rects.cancelMatch = drawButton(ctx, {
     text: '取消匹配', x: px + 40, y: py + ph - 80, w: pw - 80, h: 56,
-    fill: PALETTE.red, textColor: '#fff', fontSize: 28,
+    fill: PALETTE.red, textColor: '#FFFFFF', fontSize: 26,
   });
 }
 
 function drawRoomOverlay(ctx) {
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
 
   const pw = W * 0.8;
   const ph = 260;
   const px = (W - pw) / 2;
   const py = (H - ph) / 2;
-  ctx.fillStyle = PALETTE.panelSolid;
-  roundRect(ctx, px, py, pw, ph, 24);
-  ctx.fill();
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
 
   drawText(ctx, '房间已创建', W / 2, py + 60, {
-    color: PALETTE.text, fontSize: 34, align: 'center', bold: true,
+    color: PALETTE.text, fontSize: 32, align: 'center', bold: true,
   });
   drawText(ctx, '房间号', W / 2, py + 110, {
     color: PALETTE.textDim, fontSize: 22, align: 'center',
@@ -244,12 +246,11 @@ function drawRoomOverlay(ctx) {
 
   rects.copyRoom = drawButton(ctx, {
     text: '复制房间号', x: px + 40, y: py + ph - 80, w: pw - 80, h: 56,
-    fill: PALETTE.accent, textColor: '#fff', fontSize: 28,
+    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 26,
   });
 }
 
 function onTouch(x, y) {
-  // 浮层优先
   if (overlay === 'matching') {
     if (hit(rects.cancelMatch, x, y)) {
       wsManager.send('match_cancel');

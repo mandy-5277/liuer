@@ -1,11 +1,12 @@
 /**
  * 六儿 小游戏版 — 对局场景
  * （对应小程序版 pages/match/match，UI 由 WXML 改为 Canvas 绘制）
+ * 设计风格：暖金棕国风（figma 设计稿）。
  */
 
 const { wsManager } = require('../utils/websocket');
 const { state } = require('../state');
-const { PALETTE, drawText, drawButton, hit, roundRect } = require('../utils/ui');
+const { PALETTE, drawText, drawButton, drawCard, drawAvatar, hit, roundRect } = require('../utils/ui');
 const gameCore = require('../utils/game-core');
 const sceneMgr = require('./index');
 
@@ -27,6 +28,14 @@ const game = {
 };
 
 let boardGeo = { ox: 0, oy: 0, step: 0, size: 0 };
+
+// 各阶段标识底色（设计稿：蓝/红/绿/金）
+const PHASE_COLORS = {
+  place: PALETTE.blue,
+  capture: PALETTE.red,
+  move: PALETTE.green,
+  settled: PALETTE.gold,
+};
 
 function calcTimerProgress(remainingTime) {
   const total = game.timeTotal || 15;
@@ -252,7 +261,8 @@ function onDraw(ctx) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  drawTopBar(ctx);
+  drawPlayerCards(ctx);
+  drawStagePill(ctx);
   drawBoard(ctx);
   drawBottomActions(ctx);
 
@@ -261,32 +271,79 @@ function onDraw(ctx) {
   if (game.showSettle) drawSettle(ctx);
 }
 
-function drawTopBar(ctx) {
-  const y = state.statusBarHeight + 10;
-  drawText(ctx, game.myInfo.nickName || '我', 20, y + 14, { color: PALETTE.text, fontSize: 22, bold: true });
-  drawText(ctx, game.phaseLabel, W / 2, y + 14, { color: PALETTE.gold, fontSize: 24, align: 'center', bold: true });
-  drawText(ctx, game.opponentInfo.nickName || '对手', W - 20, y + 14, { color: PALETTE.text, fontSize: 22, align: 'right' });
+// 顶部双方姓名卡（白底描边）+ 各自"可揪/剩余"徽标
+function drawPlayerCards(ctx) {
+  const pad = 14;
+  const cardH = 64;
+  const top = state.statusBarHeight + 12;
+  const isWhite = game.myColor === 2;
 
-  const barY = y + 30;
-  drawText(ctx, game.timerText, W / 2, barY + 8, { color: game.timeLow ? PALETTE.red : PALETTE.text, fontSize: 22, align: 'center', bold: true });
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.fillRect(40, barY + 20, W - 80, 6);
-  ctx.fillStyle = game.timeLow ? PALETTE.red : PALETTE.green;
-  ctx.fillRect(40, barY + 20, (W - 80) * (game.timerProgress / 100), 6);
+  const myTop = top;
+  const oppTop = top + cardH + 8;
+
+  // 对手卡（上方）
+  drawPlayerCard(ctx, {
+    x: pad, y: oppTop, w: W - pad * 2, h: cardH,
+    name: game.opponentInfo.nickName || '对手',
+    rank: game.opponentInfo.rankScore || 0,
+    remain: game.opponentRemainText,
+    remainNum: game.opponentCatchNum,
+    isMy: false, isTurn: !game.myTurn,
+  });
+  // 我方卡（下方，靠棋盘）
+  drawPlayerCard(ctx, {
+    x: pad, y: myTop, w: W - pad * 2, h: cardH,
+    name: game.myInfo.nickName || '我',
+    rank: game.myInfo.rankScore || 0,
+    remain: game.myRemainText,
+    remainNum: game.myCatchNum,
+    isMy: true, isTurn: game.myTurn,
+  });
+}
+
+function drawPlayerCard(ctx, o) {
+  drawCard(ctx, { x: o.x, y: o.y, w: o.w, h: o.h, radius: 14,
+    border: o.isTurn ? PALETTE.gold : PALETTE.panelBorder });
+  const cy = o.y + o.h / 2;
+  drawAvatar(ctx, { x: o.x + 30, y: cy, r: 20, label: o.name, ring: o.isTurn });
+  drawText(ctx, o.name, o.x + 60, cy - 8, { color: PALETTE.text, fontSize: 20, bold: true });
+  drawText(ctx, '积分 ' + o.rank, o.x + 60, cy + 16, { color: PALETTE.textDim, fontSize: 15 });
+
+  // 右侧：剩余 / 可揪
+  const remText = game.phase === 'move' ? '剩余 ' + o.remain : '可揪 ' + o.remainNum;
+  const remColor = game.phase === 'move' ? PALETTE.green : PALETTE.gold;
+  drawText(ctx, remText, o.x + o.w - 16, cy + 6, {
+    color: remColor, fontSize: 17, align: 'right', bold: true,
+  });
+}
+
+// 阶段标识（居中醒目，按阶段变色）
+function drawStagePill(ctx) {
+  const pw = 180;
+  const ph = 38;
+  const px = (W - pw) / 2;
+  const py = state.statusBarHeight + 12 + 64 * 2 + 14;
+  const color = PHASE_COLORS[game.phase] || PALETTE.gold;
+
+  roundRect(ctx, px, py, pw, ph, ph / 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  drawText(ctx, game.phaseLabel, W / 2, py + ph / 2 + 1, {
+    color: '#FFFFFF', fontSize: 22, align: 'center', bold: true,
+  });
 }
 
 function drawBoard(ctx) {
-  const size = Math.min(W * 0.86, H * 0.5);
+  const size = Math.min(W * 0.86, H * 0.46);
   const ox = (W - size) / 2;
-  const oy = H * 0.28;
+  const oy = H * 0.40;
   const step = size / 5;
   boardGeo = { ox, oy, step, size };
 
-  ctx.fillStyle = 'rgba(255,255,255,0.05)';
-  roundRect(ctx, ox - 14, oy - 14, size + 28, size + 28, 16);
-  ctx.fill();
+  drawCard(ctx, { x: ox - 16, y: oy - 16, w: size + 32, h: size + 32, radius: 16 });
 
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  // 棋盘点（深棕描边风格）
+  ctx.fillStyle = PALETTE.boardDot;
   for (let r = 0; r < 6; r++) {
     for (let c = 0; c < 6; c++) {
       ctx.beginPath();
@@ -308,10 +365,20 @@ function drawBoard(ctx) {
     const px = ox + p.c * step;
     const py = oy + p.r * step;
     const radius = step * 0.38;
+    // 阴影感
+    ctx.beginPath();
+    ctx.arc(px, py + 2, radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(60,47,40,0.18)';
+    ctx.fill();
     ctx.beginPath();
     ctx.arc(px, py, radius, 0, Math.PI * 2);
     ctx.fillStyle = p.color === 'black' ? PALETTE.blackPiece : PALETTE.whitePiece;
     ctx.fill();
+    if (p.color === 'white') {
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = PALETTE.panelBorder;
+      ctx.stroke();
+    }
     if (p.selected) {
       ctx.lineWidth = 3;
       ctx.strokeStyle = PALETTE.gold;
@@ -327,54 +394,60 @@ function drawBottomActions(ctx) {
   const gap = 20;
   rects.actionBtns = [];
 
-  rects.actionBtns.push(drawButton(ctx, { text: '求和', x: 20, y, w: btnW, h: btnH, fill: PALETTE.panelSolid, fontSize: 24 }));
-  rects.actionBtns.push(drawButton(ctx, { text: '认输', x: 20 + (btnW + gap), y, w: btnW, h: btnH, fill: PALETTE.panelSolid, fontSize: 24 }));
-  rects.actionBtns.push(drawButton(ctx, { text: '退出', x: 20 + 2 * (btnW + gap), y, w: btnW, h: btnH, fill: 'rgba(255,107,107,0.25)', textColor: PALETTE.red, fontSize: 24 }));
+  rects.actionBtns.push(drawButton(ctx, { text: '求和', x: 20, y, w: btnW, h: btnH,
+    fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 24, border: PALETTE.gold }));
+  rects.actionBtns.push(drawButton(ctx, { text: '认输', x: 20 + (btnW + gap), y, w: btnW, h: btnH,
+    fill: PALETTE.panel, textColor: PALETTE.red, fontSize: 24, border: PALETTE.red }));
+  rects.actionBtns.push(drawButton(ctx, { text: '退出', x: 20 + 2 * (btnW + gap), y, w: btnW, h: btnH,
+    fill: PALETTE.panel, textColor: PALETTE.textDim, fontSize: 24, border: PALETTE.panelBorder }));
 
   if (game.skipAvailable || game.moveCaptureMode) {
-    rects.skipBtn = drawButton(ctx, { text: '跳过连揪', x: (W - 160) / 2, y: y - 64, w: 160, h: 48, fill: PALETTE.accent, fontSize: 24 });
+    rects.skipBtn = drawButton(ctx, { text: '跳过连揪', x: (W - 160) / 2, y: y - 64, w: 160, h: 48,
+      fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 24 });
   } else {
     rects.skipBtn = null;
   }
 }
 
 function drawDrawRequest(ctx) {
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
   const pw = W * 0.8, ph = 220, px = (W - pw) / 2, py = (H - ph) / 2;
-  ctx.fillStyle = PALETTE.panelSolid;
-  roundRect(ctx, px, py, pw, ph, 24); ctx.fill();
-  drawText(ctx, '对方请求求和', W / 2, py + 70, { color: PALETTE.text, fontSize: 32, align: 'center', bold: true });
-  drawText(ctx, game.drawRequestName || '', W / 2, py + 110, { color: PALETTE.textDim, fontSize: 24, align: 'center' });
-  rects.acceptDraw = drawButton(ctx, { text: '同意', x: px + 30, y: py + ph - 80, w: (pw - 90) / 2, h: 56, fill: PALETTE.green, fontSize: 28 });
-  rects.rejectDraw = drawButton(ctx, { text: '拒绝', x: px + 60 + (pw - 90) / 2, y: py + ph - 80, w: (pw - 90) / 2, h: 56, fill: PALETTE.red, fontSize: 28 });
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
+  drawText(ctx, '对方请求求和', W / 2, py + 70, { color: PALETTE.text, fontSize: 30, align: 'center', bold: true });
+  drawText(ctx, game.drawRequestName || '', W / 2, py + 110, { color: PALETTE.textDim, fontSize: 22, align: 'center' });
+  rects.acceptDraw = drawButton(ctx, { text: '同意', x: px + 30, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
+    fill: PALETTE.green, textColor: '#FFFFFF', fontSize: 26 });
+  rects.rejectDraw = drawButton(ctx, { text: '拒绝', x: px + 60 + (pw - 90) / 2, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
+    fill: PALETTE.panel, textColor: PALETTE.red, fontSize: 26, border: PALETTE.red });
 }
 
 function drawGiveUpConfirm(ctx) {
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
   const pw = W * 0.8, ph = 200, px = (W - pw) / 2, py = (H - ph) / 2;
-  ctx.fillStyle = PALETTE.panelSolid;
-  roundRect(ctx, px, py, pw, ph, 24); ctx.fill();
-  drawText(ctx, '确定认输吗？', W / 2, py + 80, { color: PALETTE.text, fontSize: 32, align: 'center', bold: true });
-  rects.confirmGiveUp = drawButton(ctx, { text: '确定', x: px + 30, y: py + ph - 80, w: (pw - 90) / 2, h: 56, fill: PALETTE.red, fontSize: 28 });
-  rects.cancelGiveUp = drawButton(ctx, { text: '取消', x: px + 60 + (pw - 90) / 2, y: py + ph - 80, w: (pw - 90) / 2, h: 56, fill: PALETTE.panelSolid, fontSize: 28 });
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
+  drawText(ctx, '确定认输吗？', W / 2, py + 80, { color: PALETTE.text, fontSize: 30, align: 'center', bold: true });
+  rects.confirmGiveUp = drawButton(ctx, { text: '确定', x: px + 30, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
+    fill: PALETTE.red, textColor: '#FFFFFF', fontSize: 26 });
+  rects.cancelGiveUp = drawButton(ctx, { text: '取消', x: px + 60 + (pw - 90) / 2, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
+    fill: PALETTE.panel, textColor: PALETTE.text, fontSize: 26, border: PALETTE.panelBorder });
 }
 
 function drawSettle(ctx) {
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillStyle = 'rgba(60,47,40,0.6)';
   ctx.fillRect(0, 0, W, H);
   const pw = W * 0.82, ph = 320, px = (W - pw) / 2, py = (H - ph) / 2;
-  ctx.fillStyle = PALETTE.panelSolid;
-  roundRect(ctx, px, py, pw, ph, 24); ctx.fill();
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
 
   const titleMap = { win: '胜利！', lose: '惜败', draw: '平局' };
   const titleColor = { win: PALETTE.gold, lose: PALETTE.red, draw: PALETTE.text }[game.myResult] || PALETTE.text;
-  drawText(ctx, titleMap[game.myResult] || '对局结束', W / 2, py + 70, { color: titleColor, fontSize: 42, align: 'center', bold: true });
-  drawText(ctx, (game.scoreChange >= 0 ? '+' : '') + game.scoreChange + ' 积分', W / 2, py + 120, { color: PALETTE.text, fontSize: 28, align: 'center' });
-  if (game.rankName) drawText(ctx, '新段位：' + game.rankName, W / 2, py + 160, { color: PALETTE.textDim, fontSize: 24, align: 'center' });
+  drawText(ctx, titleMap[game.myResult] || '对局结束', W / 2, py + 70, { color: titleColor, fontSize: 40, align: 'center', bold: true });
+  drawText(ctx, (game.scoreChange >= 0 ? '+' : '') + game.scoreChange + ' 积分', W / 2, py + 120, { color: PALETTE.text, fontSize: 26, align: 'center' });
+  if (game.rankName) drawText(ctx, '新段位：' + game.rankName, W / 2, py + 160, { color: PALETTE.textDim, fontSize: 22, align: 'center' });
 
-  rects.settleBack = drawButton(ctx, { text: '返回大厅', x: px + 30, y: py + ph - 80, w: pw - 60, h: 56, fill: PALETTE.accent, fontSize: 28 });
+  rects.settleBack = drawButton(ctx, { text: '返回大厅', x: px + 30, y: py + ph - 80, w: pw - 60, h: 56,
+    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 26 });
 }
 
 // ========== 触摸 ==========

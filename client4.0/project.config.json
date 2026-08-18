@@ -25,9 +25,11 @@
       "ignore": [],
       "disablePlugins": [],
       "outputPath": ""
-    }
+    },
+    "swc": false,
+    "disableSWC": true
   },
-  "libVersion": "latest",
+  "libVersion": "3.16.2",
   "gameRoot": "./",
   "condition": {},
   "simulatorPluginLibVersion": {},
