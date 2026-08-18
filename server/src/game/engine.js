@@ -315,8 +315,8 @@ class GameEngine {
 
   /** 进入走子阶段 */
   enterMoveStage(lastCapturePlayer) {
-    // 走子先手：继承揪阶段最后操作者
-    this.moveFirstPlayer = lastCapturePlayer;
+    // 走子先手：与揪子阶段先手保持一致（白先下 → 黑先揪 → 黑先走）
+    this.moveFirstPlayer = this.captureFirstPlayer;
     this.currentTurn = this.moveFirstPlayer;
 
     this.stage = Stage.MOVING;

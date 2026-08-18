@@ -83,7 +83,13 @@ function onEnter(payload) {
   state.currentGame = null;
 }
 
-function onLeave() { removeWs(); }
+function onLeave() {
+  // 如果用户主动离开对局且尚未结算，自动判负（避免对手无限等待）
+  if (game.phase !== 'settled' && game.gameId) {
+    wsManager.send('give_up');
+  }
+  removeWs();
+}
 
 // ========== WebSocket ==========
 
@@ -96,6 +102,7 @@ function registerWs() {
   wsManager.on('draw_rejected', onDrawRejected);
   wsManager.on('draw_request', onDrawRequest);
   wsManager.on('game_settle', onGameSettle);
+  wsManager.on('game_snapshot', onGameSnapshot);
   wsManager.on('timeout_warning', () => wx.showToast({ title: '已超时，系统将自动操作', icon: 'none' }));
   wsManager.on('error', onError);
   wsManager.on('opponent_disconnected', () => wx.showToast({ title: '对手已掉线，30秒后判你胜', icon: 'none' }));
@@ -110,6 +117,7 @@ function removeWs() {
   wsManager.off('draw_rejected', onDrawRejected);
   wsManager.off('draw_request', onDrawRequest);
   wsManager.off('game_settle', onGameSettle);
+  wsManager.off('game_snapshot', onGameSnapshot);
   wsManager.off('error', onError);
 }
 
@@ -192,9 +200,35 @@ function onGameSettle(data) {
   });
 }
 
+function onGameSnapshot(data) {
+  console.log('[Match] 收到游戏快照，恢复对局状态');
+  const payload = data && data.gameId ? data : state.currentGame;
+  if (!payload) return;
+  state.currentGame = payload;
+  sceneMgr.goto('match', payload);
+}
+
 function onError(data) {
   const msg = data && data.errMsg ? data.errMsg : '操作失败';
+  // 对局状态丢失时，先尝试 reconnect 同步快照，避免误弹窗
   if (msg.indexOf('不在对局') >= 0 || msg.indexOf('未找到') >= 0) {
+    if (!game._reconnectTried) {
+      game._reconnectTried = true;
+      console.log('[Match] 收到未找到对局错误，尝试 reconnect');
+      wsManager.send('reconnect', { gameId: game.gameId });
+      // 2 秒后若仍处于异常则提示返回
+      setTimeout(() => {
+        if (game.phase !== 'settled') {
+          wx.showModal({
+            title: '对局已结束',
+            content: '当前对局已不在进行中，请返回大厅重新开始。',
+            showCancel: false,
+            success: () => sceneMgr.goto('home'),
+          });
+        }
+      }, 2000);
+      return;
+    }
     wx.showModal({
       title: '对局已结束',
       content: '当前对局已不在进行中，请返回大厅重新开始。',

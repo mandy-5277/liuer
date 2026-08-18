@@ -18,7 +18,7 @@ const { WebSocketServer } = require('ws');
 const express = require('express');
 const { port, wsHeartbeatInterval, wechat } = require('./config');
 const { dispatch } = require('./ws/handler');
-const { wsMap, removeConnection, gameSessions } = require('./services/session');
+const { wsMap, removeConnection, gameSessions, findActiveGameByPlayer, handlePlayerDisconnect } = require('./services/session');
 const { initSchema } = require('./db/mysql');
 const redis = require('./db/redis');
 
@@ -174,12 +174,10 @@ wss.on('connection', (ws, req) => {
   // 连接关闭
   ws.on('close', (code) => {
     console.log(`[WS] 连接关闭, code=${code}`);
-    for (const [openid, session] of wsMap) {
-      if (session.ws === ws) {
-        console.log(`[WS] 清理用户连接: ${openid}`);
-        removeConnection(openid);
-        break;
-      }
+    const openid = ws.openid;
+    if (openid && wsMap.get(openid)) {
+      console.log(`[WS] 清理用户连接: ${openid}`);
+      removeConnection(openid);
     }
   });
 
@@ -197,6 +195,15 @@ const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (!ws.isAlive) {
       console.log('[WS] 心跳超时，断开连接');
+      // 如果该连接已绑定玩家且在游戏中，直接触发掉线判胜流程
+      //（避免某些客户端 close 事件不触发导致对手无限等待）
+      if (ws.openid) {
+        const activeGame = findActiveGameByPlayer(ws.openid);
+        if (activeGame) {
+          console.log(`[WS] 心跳超时玩家仍在对局中: ${ws.openid}，启动掉线判胜`);
+          handlePlayerDisconnect(activeGame, ws.openid);
+        }
+      }
       return ws.terminate();
     }
 

@@ -358,6 +358,12 @@ function handleTimeout(gameId, color) {
 
 /** 处理玩家掉线 */
 function handlePlayerDisconnect({ gameId, engine }, openid) {
+  // 防止重复触发（close + 心跳超时可能同时触发）
+  const disconnectKey = `${gameId}:${openid}`;
+  if (engine._disconnectTimers && engine._disconnectTimers.has(disconnectKey)) return;
+  if (!engine._disconnectTimers) engine._disconnectTimers = new Set();
+  engine._disconnectTimers.add(disconnectKey);
+
   // 通知对手
   const opponentUid = getOpponentUid(engine, openid);
   sendToPlayer(opponentUid, {
@@ -365,11 +371,15 @@ function handlePlayerDisconnect({ gameId, engine }, openid) {
     data: { openid },
   });
 
+  console.log(`[Session] 玩家掉线启动重连窗口: ${openid}, game=${gameId}`);
+
   // 设置重连窗口
   setTimeout(() => {
+    engine._disconnectTimers.delete(disconnectKey);
     // 检查玩家是否已重连
     const stillConnected = wsMap.has(openid);
     if (!stillConnected && engine.stage !== Stage.SETTLED) {
+      console.log(`[Session] 重连窗口到期，判掉线方负: ${openid}`);
       // 判掉线方负
       const color = engine.getColorByUid(openid);
       const winner = color === 1 ? 2 : 1;
@@ -642,6 +652,7 @@ module.exports = {
   leaveRoom,
   startGame,
   handleGameAction,
+  handlePlayerDisconnect,
   finalizeGame,
   generateGameId,
 };

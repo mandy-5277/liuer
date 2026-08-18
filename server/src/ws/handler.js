@@ -163,7 +163,8 @@ async function handleLogin(ws, data) {
       ),
     ]);
 
-    // 注册连接
+    // 注册连接，并把 openid 绑定到 ws 对象方便心跳/close 直接定位
+    ws.openid = openid;
     registerConnection(ws, openid, user);
 
     // 返回用户数据
