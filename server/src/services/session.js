@@ -28,9 +28,11 @@ const matchingQueue = [];
 /** roomId → { roomDocId, creatorWs, joinerWs, creatorUid, joinerUid } */
 const roomMap = new Map();
 
-/** 生成对局ID */
+/** 生成对局ID（进程内计数器 + 时间戳 + 随机 + pid，避免并发碰撞） */
+let _gameSeq = 0;
 function generateGameId() {
-  return `G${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  _gameSeq = (_gameSeq + 1) % 1000000;
+  return `G${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}-${(_gameSeq).toString().padStart(6, '0')}`;
 }
 
 // ========== 连接管理 ==========

@@ -140,6 +140,12 @@ class GameEngine {
    */
   placePiece(openid, r, c) {
     if (this.stage !== Stage.PLACING) {
+      if (this.stage === Stage.MOVING) {
+        return { success: false, errMsg: '当前是走子阶段，不能落子' };
+      }
+      if (this.stage === Stage.CAPTURING) {
+        return { success: false, errMsg: '当前是揪子阶段，不能落子' };
+      }
       return { success: false, errMsg: '当前不是下子阶段' };
     }
 
