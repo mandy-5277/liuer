@@ -478,7 +478,9 @@ async function handleGameAction(openid, cmd, data) {
   }
 
   if (result.settled) {
-    // 结算（不需要再次 finalizeGame，在 give_up 和 respond_draw 中已处理）
+    // 操作直接导致结算（绝杀/联动揪光/和棋等），广播并保存战绩
+    broadcastToGame(gameId, { cmd: 'game_settle', data: result });
+    finalizeGame(gameId, result);
     return;
   }
 

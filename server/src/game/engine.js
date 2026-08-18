@@ -265,6 +265,26 @@ class GameEngine {
     // 当前玩家揪子次数
     const myCatchKey = color === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
 
+    // 揪子次数已耗尽：自动跳过本轮（阶段2不允许手动操作无次数的回合）
+    if (this[myCatchKey] <= 0) {
+      this[myCatchKey] = 0;
+      const opponent = this.getOpponentColor(color);
+      const opponentCatchKey = opponent === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
+      if (this[opponentCatchKey] <= 0) {
+        return this.enterMoveStage(color);
+      }
+      this.currentTurn = opponent;
+      return {
+        success: true,
+        lastAction: 'capture',
+        board: cloneBoard(this.board),
+        catchNums: { black: this.blackCatchNum, white: this.whiteCatchNum },
+        currentTurn: this.currentTurn,
+        stageChanged: false,
+        skipped: true,
+      };
+    }
+
     // 执行揪子
     this.board[r][c] = EMPTY;
     this[myCatchKey]--;
