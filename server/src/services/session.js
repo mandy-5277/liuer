@@ -560,11 +560,27 @@ async function finalizeGame(gameId, settleResult) {
     userService.updateGameRecord(engine.whitePlayer.openid, whiteResult, settleResult.whiteRatingChange, settleResult.whiteAfterScore),
   ]);
 
+  // 从引擎计算真实统计值（settleResult 不携带这些字段）
+  const allMoves = engine.moves || [];
+  const blackMoves = allMoves.filter(m => m.stage === Stage.MOVING && m.player === 'black').length;
+  const whiteMoves = allMoves.filter(m => m.stage === Stage.MOVING && m.player === 'white').length;
+  const blackCaptures = allMoves.filter(m => m.stage === Stage.CAPTURING && m.player === 'black').length;
+  const whiteCaptures = allMoves.filter(m => m.stage === Stage.CAPTURING && m.player === 'white').length;
+  const durationMs = (engine.endedAt && engine.startedAt)
+    ? (engine.endedAt - engine.startedAt)
+    : 0;
+
   // 保存对局记录
   await gameRecordService.saveGameRecord({
+    gameId,
     ...settleResult,
     blackPlayer: engine.blackPlayer,
     whitePlayer: engine.whitePlayer,
+    blackMoves,
+    whiteMoves,
+    blackCaptures,
+    whiteCaptures,
+    durationMs,
   });
 
   // 对局铜板奖励（无论胜负）

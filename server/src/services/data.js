@@ -172,13 +172,14 @@ async function saveGameRecord({ gameId, blackPlayer, whitePlayer, result, endRea
     result,
     endReason,
     endStage,
-    blackMoves,
-    whiteMoves,
-    blackCaptures,
-    whiteCaptures,
+    // 兜底：字段缺失时归 0，避免写入 NULL 触发 NOT NULL 约束
+    blackMoves: blackMoves ?? 0,
+    whiteMoves: whiteMoves ?? 0,
+    blackCaptures: blackCaptures ?? 0,
+    whiteCaptures: whiteCaptures ?? 0,
     blackRating: blackAfterScore,
     whiteRating: whiteAfterScore,
-    durationMs,
+    durationMs: durationMs ?? 0,
     endTime: new Date(),
   });
   return gameId;
