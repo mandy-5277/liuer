@@ -47,10 +47,14 @@ function main() {
   sceneMgr.goto('home');
 
   // 4. 触摸事件转发
+  // 小游戏 wx.onTouchStart 的 Touch 对象坐标为 clientX/clientY（逻辑像素），
+  // 与 canvas.width/height（= windowWidth/windowHeight）同一坐标系，直接使用即可。
   wx.onTouchStart((e) => {
     const t = e.touches[0];
     if (!t) return;
-    sceneMgr.touch(t.x, t.y);
+    const x = (t.x !== undefined) ? t.x : t.clientX;
+    const y = (t.y !== undefined) ? t.y : t.clientY;
+    sceneMgr.touch(x, y);
   });
 
   // 5. 主循环（各场景已在 onEnter 中自行注册 WS 监听）
