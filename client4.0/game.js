@@ -30,6 +30,19 @@ let ctx = null;
 let canvas = null;
 
 function main() {
+  // 0. 读取启动参数（分享卡片带 room 可自动进房）
+  try {
+    const opts = (typeof wx.getLaunchOptionsSync === 'function') ? wx.getLaunchOptionsSync() : {};
+    if (opts && opts.query && opts.query.room) {
+      state.pendingRoom = ('' + opts.query.room).toUpperCase().trim();
+    }
+  } catch (e) { /* ignore */ }
+
+  // 开启分享给好友（小游戏）
+  if (typeof wx.showShareMenu === 'function') {
+    wx.showShareMenu({ withShareTicket: false, menus: ['shareAppMessage'] });
+  }
+
   // 1. 登录并连接游戏服务器
   init();
 

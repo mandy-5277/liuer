@@ -17,7 +17,7 @@ const state = {
   openid: null,
 
   // 游戏数据（由服务端 resource_update 事件同步更新）
-  energy: { current: 5, max: 30 },
+  energy: { current: 5, max: 30, nextRecoverAt: 0 },
   coins: 280,
   copper: 100,
   rankName: '初级小六',
@@ -30,6 +30,7 @@ const state = {
 
   // 当前对局（匹配成功后由 game_start 写入）
   currentGame: null,
+  pendingRoom: '',   // 分享卡片带入的房间号，启动后自动加入
 
   // 排行榜/统计等缓存
   rankList: [],
@@ -154,6 +155,7 @@ function syncUserData(data) {
   if (data.copper !== undefined) state.coins = data.copper;
   if (data.energy !== undefined) state.energy.current = data.energy;
   if (data.energyMax !== undefined) state.energy.max = data.energyMax;
+  if (data.nextRecoverAt !== undefined) state.energy.nextRecoverAt = data.nextRecoverAt;
 }
 
 module.exports = {
