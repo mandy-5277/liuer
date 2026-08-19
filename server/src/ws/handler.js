@@ -156,6 +156,11 @@ async function dispatch(ws, msg) {
 
 /** 获取 WebSocket 对应的 openid */
 function getOpenid(ws) {
+  // 优先用 ws 上已绑定的 openid 直接查 wsMap，避免同 openid 多连接时
+  // session.ws 引用比较失效导致的"请先登录"（ws.openid 在 handleLogin 中已设置）。
+  if (ws && ws.openid && wsMap.has(ws.openid)) {
+    return ws.openid;
+  }
   for (const [openid, session] of wsMap) {
     if (session.ws === ws) return openid;
   }
