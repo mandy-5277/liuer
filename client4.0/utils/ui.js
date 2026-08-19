@@ -1,5 +1,5 @@
 /**
- * 六儿 小游戏版 — Canvas UI 工具
+ * 下六儿 小游戏版 — Canvas UI 工具
  * 设计风格：暖金棕国风（依据 figma 设计稿）
  *   底色  #F5F0E8 / #EAE2D5
  *   主色  #8B6914（金棕）  点缀  #D4A843（亮金）
@@ -56,6 +56,11 @@ const PIECE_SKINS = {
     label: '自然',
     black: { fill: '#6B6B6B', stroke: '#4A4A4A' },   // 石子灰
     white: { fill: '#E8D8B0', stroke: '#C9B58A' },   // 树枝米
+  },
+  twig: {
+    label: '树枝·石子',
+    black: { fill: '#7A5A3A', stroke: '#4E3621' },   // 树枝棕（黑子）
+    white: { fill: '#9A9A9A', stroke: '#6E6E6E' },   // 石子灰（白子）
   },
 };
 

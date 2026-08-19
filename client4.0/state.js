@@ -1,5 +1,5 @@
 /**
- * 六儿 小游戏版 — 全局状态 + 登录流程
+ * 下六儿 小游戏版 — 全局状态 + 登录流程
  * （对应小程序版 app.js 的 globalData 与 loginAndConnect 逻辑）
  *
  * 小游戏没有 App() 实例，这里用一个单例模块保存全局状态，
@@ -18,8 +18,6 @@ const state = {
 
   // 游戏数据（由服务端 resource_update 事件同步更新）
   energy: { current: 5, max: 30, nextRecoverAt: 0 },
-  coins: 280,
-  copper: 100,
   rankName: '初级小六',
   rankScore: 0,
   winRate: 0,
@@ -34,6 +32,10 @@ const state = {
 
   // 排行榜/统计等缓存
   rankList: [],
+
+  // 授权待确认标志：微信用户信息授权浮层显示期间为 true，
+  // 在此阶段 home 场景的其它按钮点击应被禁用，避免与授权按钮重叠触发。
+  authPending: false,
 
   // 棋子皮肤（用户自定义）：classic / warm / nature，本地持久化
   pieceSkin: (() => {
@@ -150,8 +152,10 @@ function ensureUserInfoAndConnect() {
   const btnW = 240;
   const btnH = 52;
   const left = Math.round((info.windowWidth - btnW) / 2);
-  const top = Math.round((info.windowHeight - btnH) / 2);
+  // 按钮放在屏幕底部空白处（"游戏规则"链接上方），避免与中央的匹配/邀请按钮重叠。
+  const top = Math.round(info.windowHeight - btnH - 130);
 
+  state.authPending = true;
   console.log('[State] 请求微信用户信息授权');
   const btn = wx.createUserInfoButton({
     type: 'text',
@@ -174,6 +178,7 @@ function ensureUserInfoAndConnect() {
   const finish = (userInfo) => {
     if (handled) return;
     handled = true;
+    state.authPending = false;
     try { btn.destroy(); } catch (e) { /* ignore */ }
     if (userInfo) {
       const { nickName, avatarUrl } = userInfo;
@@ -245,7 +250,6 @@ function syncUserData(data) {
   if (data.rankScore !== undefined) state.rankScore = data.rankScore;
   if (data.rankName !== undefined) state.rankName = data.rankName;
   if (data.winRate !== undefined) state.winRate = data.winRate;
-  if (data.copper !== undefined) state.coins = data.copper;
   if (data.energy !== undefined) state.energy.current = data.energy;
   if (data.energyMax !== undefined) state.energy.max = data.energyMax;
   if (data.nextRecoverAt !== undefined) state.energy.nextRecoverAt = data.nextRecoverAt;

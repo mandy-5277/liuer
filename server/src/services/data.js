@@ -9,6 +9,7 @@
 
 const { pool } = require('../db/mysql');
 const redis = require('../db/redis');
+const { game: gameConfig } = require('../config');
 
 // 内存态 Key 前缀
 const K = {
@@ -20,10 +21,60 @@ const K = {
 
 // ============ 用户 ============
 
+// 启动时确保 users 表存在 energyRecoverAt 字段（精力懒恢复时间戳，毫秒）
+async function ensureEnergySchema() {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN energyRecoverAt BIGINT NOT NULL DEFAULT 0');
+    console.log('[Data] users.energyRecoverAt 字段已创建');
+  } catch (e) {
+    // 字段已存在会报错，忽略
+  }
+}
+
+/**
+ * 精力懒恢复：根据 energyRecoverAt 时间戳补算离线/在线累计恢复的点数。
+ * 离线也算——因为用绝对时间戳，登陆或结算读用户时调用即可。
+ * @returns {{ energy, energyRecoverAt }} 补算后的最新值（已写回 DB）
+ */
+async function recoverEnergy(openid, energy, energyRecoverAt) {
+  const max = gameConfig.energyMax || 30;
+  const intervalMs = (gameConfig.energyRecoverMinutes || 5) * 60 * 1000;
+  if (energy >= max) {
+    if (energyRecoverAt !== 0) {
+      await pool.query('UPDATE users SET energyRecoverAt = 0 WHERE openid = ?', [openid]);
+    }
+    return { energy, energyRecoverAt: 0 };
+  }
+  const now = Date.now();
+  if (!energyRecoverAt || energyRecoverAt <= 0) {
+    // 未记录恢复起点：立即设定为 now + interval
+    const next = now + intervalMs;
+    await pool.query('UPDATE users SET energyRecoverAt = ? WHERE openid = ?', [next, openid]);
+    return { energy, energyRecoverAt: next };
+  }
+  if (now < energyRecoverAt) {
+    return { energy, energyRecoverAt };
+  }
+  const recovered = Math.floor((now - energyRecoverAt) / intervalMs) + 1;
+  let newEnergy = energy + recovered;
+  let newRecoverAt = 0;
+  if (newEnergy >= max) {
+    newEnergy = max;
+  } else {
+    // 剩余时间折算到下个恢复点
+    const elapsed = now - energyRecoverAt;
+    const used = recovered * intervalMs;
+    newRecoverAt = now + (intervalMs - (elapsed - used));
+  }
+  await pool.query('UPDATE users SET energy = ?, energyRecoverAt = ? WHERE openid = ?', [newEnergy, newRecoverAt, openid]);
+  return { energy: newEnergy, energyRecoverAt: newRecoverAt };
+}
+
 async function getOrCreateUser(openid, userInfo = {}) {
   const [rows] = await pool.query('SELECT * FROM users WHERE openid = ?', [openid]);
   if (rows.length > 0) {
     const u = rows[0];
+    const rec = await recoverEnergy(openid, u.energy, u.energyRecoverAt || 0);
     return {
       openid: u.openid,
       unionid: u.unionid,
@@ -31,9 +82,8 @@ async function getOrCreateUser(openid, userInfo = {}) {
       avatarUrl: u.avatarUrl,
       rankScore: u.rankScore,
       rankName: u.rankName,
-      energy: u.energy,
-      copper: u.copper,
-      dailyCopper: u.dailyCopper,
+      energy: rec.energy,
+      energyRecoverAt: rec.energyRecoverAt,
       lastCheckin: u.lastCheckin,
       lastDailyReset: u.lastDailyReset,
       winCount: u.winCount,
@@ -64,8 +114,7 @@ async function getOrCreateUser(openid, userInfo = {}) {
     rankScore,
     rankName,
     energy: 30,
-    copper: 0,
-    dailyCopper: 0,
+    energyRecoverAt: 0,
     lastCheckin: null,
     lastDailyReset: null,
     winCount: 0,
@@ -80,6 +129,7 @@ async function findByOpenid(openid) {
   const [rows] = await pool.query('SELECT * FROM users WHERE openid = ?', [openid]);
   if (rows.length === 0) return null;
   const u = rows[0];
+  const rec = await recoverEnergy(openid, u.energy, u.energyRecoverAt || 0);
   return {
     openid: u.openid,
     unionid: u.unionid,
@@ -87,9 +137,8 @@ async function findByOpenid(openid) {
     avatarUrl: u.avatarUrl,
     rankScore: u.rankScore,
     rankName: u.rankName,
-    energy: u.energy,
-    copper: u.copper,
-    dailyCopper: u.dailyCopper,
+    energy: rec.energy,
+    energyRecoverAt: rec.energyRecoverAt,
     lastCheckin: u.lastCheckin,
     lastDailyReset: u.lastDailyReset,
     winCount: u.winCount,
@@ -101,7 +150,7 @@ async function findByOpenid(openid) {
 }
 
 async function updateUser(openid, updates) {
-  const allowed = ['nickName', 'avatarUrl', 'rankScore', 'rankName', 'energy', 'copper', 'dailyCopper', 'lastCheckin', 'lastDailyReset', 'winCount', 'loseCount', 'drawCount', 'settings'];
+  const allowed = ['nickName', 'avatarUrl', 'rankScore', 'rankName', 'energy', 'lastCheckin', 'lastDailyReset', 'winCount', 'loseCount', 'drawCount', 'settings'];
   const fields = [];
   const values = [];
   for (const k of allowed) {
@@ -239,22 +288,29 @@ async function getUserTransactions(openid, limit = 20) {
 async function checkin(openid, today) {
   const [rows] = await pool.query('SELECT * FROM users WHERE openid = ?', [openid]);
   if (rows.length === 0) return { success: false, reason: 'user_not_found' };
-
   const u = rows[0];
-  const lastCheckin = u.lastCheckin ? u.lastCheckin.toISOString().slice(0, 10) : null;
-  const todayStr = today.toISOString().slice(0, 10);
 
-  if (lastCheckin === todayStr) {
-    return { success: false, reason: 'already_checked_in', energy: u.energy };
-  }
-
+  // 原子判断：今天已签到则不再记录（使用数据库时区，避免时区字符串比较偏差）。
+  // 精力奖励由调用方（handler）通过 addEnergy 统一发放（含上限控制）。
   const bonus = 5;
-  const newEnergy = u.energy + bonus;
-  await pool.query(
-    'UPDATE users SET energy = ?, lastCheckin = ? WHERE openid = ?',
-    [newEnergy, todayStr, openid]
+  const [r] = await pool.query(
+    `UPDATE users SET lastCheckin = CURDATE()
+     WHERE openid = ? AND (lastCheckin IS NULL OR DATE(lastCheckin) <> CURDATE())`,
+    [openid]
   );
-  return { success: true, energy: newEnergy, bonus };
+  if (r.affectedRows === 0) {
+    return { success: false, reason: 'already_checked_in', errMsg: '今日已签到，明天再来', energy: u.energy };
+  }
+  return { success: true, energy: u.energy, bonus };
+}
+
+// 扣减/增加精力后，重置下次自然恢复的时间戳
+async function resetRecoverAt(openid, newEnergy) {
+  const max = gameConfig.energyMax || 30;
+  const intervalMs = (gameConfig.energyRecoverMinutes || 5) * 60 * 1000;
+  const recoverAt = newEnergy >= max ? 0 : Date.now() + intervalMs;
+  await pool.query('UPDATE users SET energyRecoverAt = ? WHERE openid = ?', [recoverAt, openid]);
+  return recoverAt;
 }
 
 async function deductEnergy(openid, amount) {
@@ -264,18 +320,21 @@ async function deductEnergy(openid, amount) {
   if (cur < amount) return { success: false, reason: 'insufficient_energy', energy: cur };
   const newEnergy = cur - amount;
   await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [newEnergy, openid]);
-  return { success: true, energy: newEnergy };
+  const recoverAt = await resetRecoverAt(openid, newEnergy);
+  return { success: true, energy: newEnergy, energyRecoverAt: recoverAt };
 }
 
 async function addEnergy(openid, amount) {
   const [rows] = await pool.query('SELECT energy FROM users WHERE openid = ?', [openid]);
   if (rows.length === 0) return { success: false, reason: 'user_not_found' };
-  const newEnergy = rows[0].energy + amount;
+  const max = gameConfig.energyMax || 30;
+  const newEnergy = Math.min(max, rows[0].energy + amount);
   await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [newEnergy, openid]);
-  return { success: true, energy: newEnergy };
+  const recoverAt = await resetRecoverAt(openid, newEnergy);
+  return { success: true, energy: newEnergy, energyRecoverAt: recoverAt };
 }
 
-async function buyEnergy(openid, energyAmount, copperCost) {
+async function buyEnergy_REMOVED(openid, energyAmount, copperCost) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -445,6 +504,8 @@ module.exports = {
   updateUser,
   getUserGames,
   getRankList,
+  ensureEnergySchema,
+  recoverEnergy,
   // 对局
   createGameRecord,
   updateGameRecord,
@@ -455,9 +516,6 @@ module.exports = {
   checkin,
   deductEnergy,
   addEnergy,
-  buyEnergy,
-  updateCopper,
-  updateDailyCopper,
   updateDailyReset,
   updateSettings,
   // 房间
@@ -488,11 +546,8 @@ module.exports = {
     getRankList,
     // session.js: userService.updateGameRecord(openid, result, ratingChange, afterScore)
     updateGameRecord: updateUserGameResult,
-    updateDailyCopper,
     // handler.js
-    buyEnergy,
     addEnergy,
-    updateCopper,
     deductEnergy,
     checkin,
     updateSettings,

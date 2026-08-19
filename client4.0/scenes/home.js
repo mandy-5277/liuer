@@ -1,5 +1,5 @@
 /**
- * 六儿 小游戏版 — 首页大厅场景
+ * 下六儿 小游戏版 — 首页大厅场景
  * 设计依据：figma.md #page-home（375×812 基准，暖金棕国风）
  *
  * 布局：顶部资源栏 → 中央（标题+棋盘动画+按钮）→ 个人信息卡（段位/积分/胜率/精力条）→ 规则入口 → 底部导航
@@ -44,7 +44,14 @@ function onEnter() {
   }
 }
 
+function onLeave() {
+  // 离开首页时清理 WS 监听，避免 game_start 等跳转类监听残留导致重复触发场景切换
+  removeWs();
+}
+
 function registerWs() {
+  // 进入场景前先清掉旧监听，避免重复注册导致一次 game_start 触发多次场景跳转
+  removeWs();
   wsManager.on('match_status', (data) => {
     overlay = data.status === 'matching' ? 'matching' : (data.status === 'cancelled' ? null : overlay);
   });
@@ -82,10 +89,20 @@ function registerWs() {
     inviters.push({ roomId: data.roomId, nickName: data.nickName || '好友' });
   });
   wsManager.on('resource_update', (data) => {
-    if (data.copper !== undefined) state.coins = data.copper;
     if (data.energy !== undefined) state.energy.current = data.energy;
+    if (data.energyRecoverAt !== undefined) state.energy.nextRecoverAt = data.energyRecoverAt;
+    if (data.energyMax !== undefined) state.energy.max = data.energyMax;
     if (data.rankScore !== undefined) state.rankScore = data.rankScore;
     if (data.rankName) state.rankName = data.rankName;
+  });
+  wsManager.on('sign_in_result', (data) => {
+    wx.showToast({ title: '签到成功 +' + ((data && data.energy) ? 5 : 0) + '精力', icon: 'success' });
+  });
+  wsManager.on('ad_reward_result', (data) => {
+    wx.showToast({ title: '精力 +' + ((data && data.reward) || 10), icon: 'success' });
+  });
+  wsManager.on('share_reward_result', (data) => {
+    wx.showToast({ title: '精力 +' + ((data && data.reward) || 5), icon: 'success' });
   });
   wsManager.on('error', (data) => {
     const msg = data && data.errMsg ? data.errMsg : '操作失败';
@@ -94,19 +111,44 @@ function registerWs() {
   });
 }
 
+function removeWs() {
+  wsManager.off('match_status');
+  wsManager.off('game_start');
+  wsManager.off('room_created');
+  wsManager.off('join_room_success');
+  wsManager.off('room_cancelled');
+  wsManager.off('room_expired');
+  wsManager.off('invite_received');
+  wsManager.off('resource_update');
+  wsManager.off('error');
+}
+
 function onDraw(ctx) {
   W = ctx.canvas.width;
   H = ctx.canvas.height;
   drawBackground(ctx);
   drawTopBar(ctx);
-  drawCenter(ctx);
-  drawProfileCard(ctx);
-  drawRuleLink(ctx);
-  rects.W = W; rects.H = H;
+  const btnBottom = drawCenter(ctx);
+  const navTop = H - 64; // 底部导航顶
   drawBottomNav(ctx, 'home', rects);
+  drawProfileCard(ctx, navTop - 152);
+  drawRuleLink(ctx, navTop - 22);
+  rects.W = W; rects.H = H;
 
   if (overlay === 'matching') drawMatchingOverlay(ctx);
   else if (overlay === 'room') drawRoomOverlay(ctx);
+  else if (overlay === 'energy') drawEnergyOverlay(ctx);
+
+  // 微信用户信息授权提示遮罩（授权浮层位于屏幕底部，这里仅作视觉提示）
+  if (state.authPending) drawAuthMask(ctx);
+}
+
+function drawAuthMask(ctx) {
+  ctx.fillStyle = 'rgba(60,47,40,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  const cy = state.statusBarHeight + 90;
+  drawText(ctx, '请先授权微信昵称头像', W / 2, cy, { color: PALETTE.text, fontSize: 22, align: 'center', bold: true });
+  drawText(ctx, '点击下方按钮完成授权后即可开始游戏', W / 2, cy + 32, { color: PALETTE.textDim, fontSize: 15, align: 'center' });
 }
 
 function drawBackground(ctx) {
@@ -117,41 +159,43 @@ function drawBackground(ctx) {
   ctx.fillRect(0, 0, W, H);
 }
 
-// 顶部资源栏：Logo + 精力/倒计时/铜板
+// 顶部资源栏：精力值 + 下次恢复倒计时
 function drawTopBar(ctx) {
   const y = state.statusBarHeight + 4;
-  drawText(ctx, '六儿', 16, y + 22, { color: PALETTE.gold, fontSize: 24, bold: true });
   const right = W - 16;
-  drawText(ctx, '⚡ ' + state.energy.current + '/' + state.energy.max, right, y + 16, { color: PALETTE.green, fontSize: 15, align: 'right' });
-  drawText(ctx, '🪙 ' + (state.coins || 0), right, y + 38, { color: PALETTE.goldBright, fontSize: 15, align: 'right' });
+  const recover = state.energy.nextRecoverAt > Date.now()
+    ? formatCd(state.energy.nextRecoverAt)
+    : '';
+  drawText(ctx, '⚡ ' + state.energy.current + '/' + state.energy.max + (recover ? '  下次+' + recover : ''), right, y + 16, { color: PALETTE.green, fontSize: 15, align: 'right' });
 }
 
 // 中央：标题 + 棋盘动画 + 按钮
 function drawCenter(ctx) {
   const cx = W / 2;
-  const topY = state.statusBarHeight + 52;
+  const topY = state.statusBarHeight + 40;
 
-  drawText(ctx, '六儿', cx, topY + 18, { color: PALETTE.text, fontSize: 30, align: 'center', bold: true });
+  drawText(ctx, '下六儿', cx, topY + 16, { color: PALETTE.text, fontSize: 28, align: 'center', bold: true });
 
-  // 棋盘动画卡 224x224
-  const bSize = 224;
+  // 棋盘动画卡 200x200（适配 667 高度）
+  const bSize = 200;
   const bx = (W - bSize) / 2;
-  const by = topY + 36;
+  const by = topY + 28;
   drawCard(ctx, { x: bx, y: by, w: bSize, h: bSize, radius: 16 });
   drawBoardAnimation(ctx, bx + 12, by + 12, bSize - 24);
 
-  drawText(ctx, '落子布局 · 揪子博弈 · 走子决胜', cx, by + bSize + 24, { color: PALETTE.textDim, fontSize: 14, align: 'center' });
+  drawText(ctx, '落子布局 · 揪子博弈 · 走子决胜', cx, by + bSize + 20, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
 
   // 按钮组
   const btnW = W - 94;
-  const btnH = 52;
+  const btnH = 44;
   const mx = (W - btnW) / 2;
-  const y1 = by + bSize + 44;
-  const y2 = y1 + btnH + 12;
+  const y1 = by + bSize + 32;
+  const y2 = y1 + btnH + 8;
 
-  drawText(ctx, '消耗 5 点精力', cx, y1 - 10, { color: PALETTE.textDim, fontSize: 12, align: 'center' });
-  rects.match = drawButton(ctx, { text: '⚔ 随机匹配', x: mx, y: y1, w: btnW, h: btnH, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 22 });
-  rects.friend = drawButton(ctx, { text: '👥 邀请好友开局', x: mx, y: y2, w: btnW, h: btnH, fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 22, border: PALETTE.gold });
+  drawText(ctx, '消耗 5 点精力', cx, y1 - 6, { color: PALETTE.textDim, fontSize: 11, align: 'center' });
+  rects.match = drawButton(ctx, { text: '⚔ 随机匹配', x: mx, y: y1, w: btnW, h: btnH, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 20 });
+  rects.friend = drawButton(ctx, { text: '👥 邀请好友开局', x: mx, y: y2, w: btnW, h: btnH, fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 20, border: PALETTE.gold });
+  return y2 + btnH;
 }
 
 function drawBoardAnimation(ctx, ox, oy, area) {
@@ -201,48 +245,47 @@ function drawPieceAt(ctx, x, y, r, color) {
   }
 }
 
-// 个人信息卡
-function drawProfileCard(ctx) {
+// 个人信息卡（传入顶部 y，高度固定 120，参照 figma 首页个人信息卡）
+function drawProfileCard(ctx, cardY) {
   const cardX = 16;
   const cardW = W - 32;
-  const cardY = H - 230;
-  const cardH = 150;
+  const cardH = 120;
   drawCard(ctx, { x: cardX, y: cardY, w: cardW, h: cardH, radius: 16 });
 
-  const cy = cardY + 38;
-  drawAvatar(ctx, { x: cardX + 36, y: cy, r: 26, label: (state.userInfo && state.userInfo.nickName) || '我', ring: true });
+  const cy = cardY + 30;
+  drawAvatar(ctx, { x: cardX + 34, y: cy, r: 22, label: (state.userInfo && state.userInfo.nickName) || '我', ring: true });
 
-  drawText(ctx, (state.userInfo && state.userInfo.nickName) || '我', cardX + 76, cy - 8, { color: PALETTE.text, fontSize: 20, bold: true });
+  drawText(ctx, (state.userInfo && state.userInfo.nickName) || '我', cardX + 70, cy - 8, { color: PALETTE.text, fontSize: 19, bold: true });
   // 段位徽章
-  const badgeW = 76;
-  const badgeX = cardX + 76;
+  const badgeW = 74;
+  const badgeX = cardX + 70;
   const badgeY = cy + 8;
-  roundRect(ctx, badgeX, badgeY, badgeW, 24, 12);
+  roundRect(ctx, badgeX, badgeY, badgeW, 22, 11);
   ctx.fillStyle = PALETTE.goldBright;
   ctx.fill();
-  drawText(ctx, state.rankName || '初级小六', badgeX + badgeW / 2, badgeY + 17, { color: PALETTE.textOnGold, fontSize: 14, align: 'center', bold: true });
+  drawText(ctx, state.rankName || '初级小六', badgeX + badgeW / 2, badgeY + 15, { color: PALETTE.textOnGold, fontSize: 12, align: 'center', bold: true });
 
   // 积分 / 胜率
-  drawText(ctx, '' + (state.rankScore || 0), cardX + cardW - 90, cy - 4, { color: PALETTE.gold, fontSize: 24, align: 'center', bold: true });
-  drawText(ctx, '积分', cardX + cardW - 90, cy + 16, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
-  drawText(ctx, (state.winRate || 0) + '%', cardX + cardW - 30, cy - 4, { color: PALETTE.green, fontSize: 24, align: 'center', bold: true });
-  drawText(ctx, '胜率', cardX + cardW - 30, cy + 16, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
+  drawText(ctx, '' + (state.rankScore || 0), cardX + cardW - 90, cy - 4, { color: PALETTE.gold, fontSize: 22, align: 'center', bold: true });
+  drawText(ctx, '积分', cardX + cardW - 90, cy + 16, { color: PALETTE.textDim, fontSize: 12, align: 'center' });
+  drawText(ctx, (state.winRate || 0) + '%', cardX + cardW - 30, cy - 4, { color: PALETTE.green, fontSize: 22, align: 'center', bold: true });
+  drawText(ctx, '胜率', cardX + cardW - 30, cy + 16, { color: PALETTE.textDim, fontSize: 12, align: 'center' });
 
   // 精力进度条
   const barX = cardX + 16;
-  const barY = cardY + 100;
+  const barY = cardY + 72;
   const barW = cardW - 32;
-  drawText(ctx, '精力 ' + state.energy.current + '/' + state.energy.max, barX, barY - 6, { color: PALETTE.text, fontSize: 13 });
-  roundRect(ctx, barX, barY, barW, 10, 5);
+  drawText(ctx, '精力 ' + state.energy.current + '/' + state.energy.max, barX, barY - 6, { color: PALETTE.text, fontSize: 12 });
+  roundRect(ctx, barX, barY, barW, 8, 4);
   ctx.fillStyle = PALETTE.panelBorder;
   ctx.fill();
   const pct = Math.max(0, Math.min(1, state.energy.current / state.energy.max));
   if (pct > 0) {
-    roundRect(ctx, barX, barY, barW * pct, 10, 5);
+    roundRect(ctx, barX, barY, barW * pct, 8, 4);
     ctx.fillStyle = PALETTE.green;
     ctx.fill();
   }
-  drawText(ctx, '下次恢复 ⏳ ' + formatCd(state.energy.nextRecoverAt), W - 16, barY + 26, { color: PALETTE.textDim, fontSize: 11, align: 'right' });
+  drawText(ctx, '下次恢复 ⏳ ' + formatCd(state.energy.nextRecoverAt), W - 16, barY + 24, { color: PALETTE.textDim, fontSize: 11, align: 'right' });
 }
 
 function formatCd(ts) {
@@ -253,9 +296,9 @@ function formatCd(ts) {
   return (m < 10 ? '0' : '') + m + ':' + (ss < 10 ? '0' : '') + ss;
 }
 
-function drawRuleLink(ctx) {
-  rects.ruleLink = { x: 0, y: H - 76, w: W, h: 24 };
-  drawText(ctx, '游戏规则 ▶', W / 2, H - 60, { color: PALETTE.textDim, fontSize: 15, align: 'center' });
+function drawRuleLink(ctx, y) {
+  rects.ruleLink = { x: 0, y, w: W, h: 24 };
+  drawText(ctx, '游戏规则 ▶', W / 2, y + 12, { color: PALETTE.textDim, fontSize: 15, align: 'center' });
 }
 
 // ========== 匹配浮层 ==========
@@ -334,11 +377,15 @@ function dim(ctx) {
 
 // ========== 触摸 ==========
 function onTouch(x, y) {
+  // 微信用户信息授权浮层显示期间，禁用所有其它按钮，避免与授权按钮重叠触发
+  if (state.authPending) return;
+
   if (overlay === 'matching') {
     if (hit(rects.cancelMatch, x, y)) { wsManager.send('match_cancel'); overlay = null; }
     return;
   }
   if (overlay === 'room') { handleRoomTouch(x, y); return; }
+  if (overlay === 'energy') { handleEnergyTouch(x, y); return; }
 
   if (hit(rects.match, x, y)) { startMatch(); return; }
   if (hit(rects.friend, x, y)) { openInvite(); return; }
@@ -399,13 +446,13 @@ function leaveRoom() {
 }
 
 function startMatch() {
-  if (state.energy.current < 5) { wx.showToast({ title: '精力不足，请等待恢复', icon: 'none' }); return; }
+  if (state.energy.current < 5) { overlay = 'energy'; return; }
   wsManager.send('match_start');
   overlay = 'matching';
 }
 
 function openInvite() {
-  if (state.energy.current < 5) { wx.showToast({ title: '精力不足，请等待恢复', icon: 'none' }); return; }
+  if (state.energy.current < 5) { overlay = 'energy'; return; }
   overlay = 'room';
   overlayTab = 'create';
   if (!roomCode) wsManager.send('invite_room');
@@ -415,7 +462,7 @@ function shareRoom() {
   if (!roomCode) return;
   // 小游戏分享给好友，带 query.room，好友点开可自动进房
   wx.shareAppMessage && wx.shareAppMessage({
-    title: '【六儿】邀你来对战！房间号 ' + roomCode,
+    title: '【下六儿】邀你来对战！房间号 ' + roomCode,
     imageUrl: '',
     query: { room: roomCode },
     success: () => wx.showToast({ title: '已唤起分享', icon: 'success' }),
@@ -423,4 +470,48 @@ function shareRoom() {
   });
 }
 
-module.exports = { onEnter, onDraw, onTouch, onWs: () => {} };
+// ========== 精力不足恢复浮层 ==========
+function drawEnergyOverlay(ctx) {
+  dim(ctx);
+  const pw = W * 0.86, ph = 420, px = (W - pw) / 2, py = (H - ph) / 2;
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
+
+  rects.closeEnergy = { x: px + pw - 40, y: py + 12, w: 28, h: 28 };
+  drawText(ctx, '✕', px + pw - 26, py + 32, { color: PALETTE.textDim, fontSize: 22, align: 'center' });
+
+  drawText(ctx, '精力不足', W / 2, py + 48, { color: PALETTE.text, fontSize: 28, align: 'center', bold: true });
+  drawText(ctx, '每局消耗 5 点 · 每 5 分钟自动恢复 1 点（离线也计）', W / 2, py + 82, { color: PALETTE.textDim, fontSize: 14, align: 'center' });
+
+  const bx = px + 40, bw = pw - 80, by = py + 116, bh = 52, gap = 14;
+  rects.adEnergy = drawButton(ctx, { text: '看广告恢复精力 +10（每日3次）', x: bx, y: by, w: bw, h: bh, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 19 });
+  rects.shareEnergy = drawButton(ctx, { text: '分享得精力 +5（每日5次）', x: bx, y: by + (bh + gap), w: bw, h: bh, fill: PALETTE.green, textColor: '#FFFFFF', fontSize: 19 });
+  rects.signEnergy = drawButton(ctx, { text: '每日签到 +5', x: bx, y: by + (bh + gap) * 2, w: bw, h: bh, fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 19, border: PALETTE.gold });
+
+  drawText(ctx, '也可等待自然恢复，关闭后继续', W / 2, py + ph - 26, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
+}
+
+function handleEnergyTouch(x, y) {
+  if (hit(rects.closeEnergy, x, y)) { overlay = null; return; }
+  if (hit(rects.adEnergy, x, y)) {
+    wx.showLoading && wx.showLoading({ title: '获取中', mask: true });
+    wsManager.send('get_ad_reward');
+    setTimeout(() => wx.hideLoading && wx.hideLoading(), 800);
+    overlay = null;
+    return;
+  }
+  if (hit(rects.shareEnergy, x, y)) {
+    wsManager.send('get_share_reward');
+    wx.showToast({ title: '已获得精力 +5', icon: 'success' });
+    overlay = null;
+    return;
+  }
+  if (hit(rects.signEnergy, x, y)) {
+    wx.showLoading && wx.showLoading({ title: '签到中', mask: true });
+    wsManager.send('sign_in');
+    setTimeout(() => wx.hideLoading && wx.hideLoading(), 800);
+    overlay = null;
+    return;
+  }
+}
+
+module.exports = { onEnter, onLeave, onDraw, onTouch, onWs: () => {} };

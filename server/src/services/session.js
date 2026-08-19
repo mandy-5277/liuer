@@ -101,7 +101,7 @@ function getOpponentUid(engine, openid) {
 // ========== 匹配系统 ==========
 
 /** 加入匹配队列 */
-function joinMatching(player) {
+async function joinMatching(player) {
   // 检查是否已在队列中
   if (matchingQueue.find(p => p.openid === player.openid)) {
     return { success: false, errMsg: '已在匹配队列中' };
@@ -119,7 +119,7 @@ function joinMatching(player) {
   });
 
   // 尝试匹配
-  tryMatch();
+  await tryMatch();
   return { success: true, queueSize: matchingQueue.length };
 }
 
@@ -135,7 +135,7 @@ function cancelMatching(openid) {
 }
 
 /** 尝试匹配 */
-function tryMatch() {
+async function tryMatch() {
   while (matchingQueue.length >= 2) {
     const player1 = matchingQueue.shift();
     const player2 = matchingQueue.shift();
@@ -145,7 +145,7 @@ function tryMatch() {
       ? [player1, player2]
       : [player2, player1];
 
-    startGame(blackPlayer, whitePlayer, 'random');
+    await startGame(blackPlayer, whitePlayer, 'random');
   }
 }
 
@@ -249,7 +249,7 @@ async function joinRoomByCode(joinerUid, roomId) {
     ? [creatorPlayer, joinerPlayer]
     : [joinerPlayer, creatorPlayer];
 
-  startGame(blackPlayer, whitePlayer, 'room');
+  await startGame(blackPlayer, whitePlayer, 'room');
 
   // 清理房间
   if (rm) {
@@ -286,8 +286,18 @@ async function leaveRoom(uid, roomId) {
 // ========== 对局管理 ==========
 
 /** 开始对局 */
-function startGame(blackPlayer, whitePlayer, roomType) {
+async function startGame(blackPlayer, whitePlayer, roomType) {
   const gameId = generateGameId();
+
+  // 开局消耗双方精力（每局 energyPerGame），不足则跳过扣减，避免对局卡死
+  const cost = gameConfig.energyPerGame || 1;
+  try {
+    await userService.deductEnergy(blackPlayer.openid, cost);
+    await userService.deductEnergy(whitePlayer.openid, cost);
+  } catch (e) {
+    console.error('[Session] 扣除开局精力失败:', e);
+  }
+
   const engine = new GameEngine(gameId, blackPlayer, whitePlayer);
   engine.init();
   gameSessions.set(gameId, engine);
@@ -511,7 +521,7 @@ function buildBroadcastMsg(engine, result, openid) {
     data: {
       stage: engine.stage,
       currentTurn: engine.currentTurn,
-      remainingTime: engine.getRemainingTime(),
+      remainingTime: Math.ceil(engine.getRemainingTime() / 1000),
       board: result.board || engine.board,
       lastMove: {
         player: color,
@@ -599,22 +609,7 @@ async function finalizeGame(gameId, settleResult) {
     durationMs,
   });
 
-  // 对局铜板奖励（无论胜负）
-  const today = new Date().toISOString().slice(0, 10);
-  const blackUser = await userService.findByOpenid(engine.blackPlayer.openid);
-  const whiteUser = await userService.findByOpenid(engine.whitePlayer.openid);
-
-  for (const { player, user } of [
-    { player: engine.blackPlayer, user: blackUser },
-    { player: engine.whitePlayer, user: whiteUser },
-  ]) {
-    if (user && (user.lastSigninDate !== today || (user.dailyCopperEarned || 0) < gameConfig.maxCopperPerDay)) {
-      await userService.updateDailyCopper(player.openid, gameConfig.copperPerGame);
-      await transactionService.record(player.openid, 'game', gameConfig.copperPerGame, '完成对局', (user.copper || 0) + gameConfig.copperPerGame);
-    }
-  }
-
-  // 资源变更通知
+  // 资源变更通知（精力已含自然恢复时间戳，客户端据此显示"下次恢复"倒计时）
   const freshBlackUser = await userService.findByOpenid(engine.blackPlayer.openid);
   const freshWhiteUser = await userService.findByOpenid(engine.whitePlayer.openid);
 
@@ -623,8 +618,9 @@ async function finalizeGame(gameId, settleResult) {
     data: {
       rankScore: freshBlackUser?.rankScore || 0,
       rankName: freshBlackUser?.rankName || '初级小六',
-      copper: freshBlackUser?.copper || 0,
       energy: freshBlackUser?.energy || 0,
+      energyRecoverAt: freshBlackUser?.energyRecoverAt || 0,
+      energyMax: gameConfig.energyMax || 30,
     },
   });
 
@@ -633,8 +629,9 @@ async function finalizeGame(gameId, settleResult) {
     data: {
       rankScore: freshWhiteUser?.rankScore || 0,
       rankName: freshWhiteUser?.rankName || '初级小六',
-      copper: freshWhiteUser?.copper || 0,
       energy: freshWhiteUser?.energy || 0,
+      energyRecoverAt: freshWhiteUser?.energyRecoverAt || 0,
+      energyMax: gameConfig.energyMax || 30,
     },
   });
 }

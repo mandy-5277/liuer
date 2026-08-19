@@ -41,11 +41,13 @@ module.exports = {
     drawRequestCooldown: 15000, // 求和冷却 15秒
     roomExpire: 60000,     // 房间过期 60秒
     reconnectWindow: 30000, // 断线重连窗口30秒，超时判掉线方负
-    energyPerGame: 1,      // 每局消耗精力
-    copperPerGame: 5,      // 每局获得铜板
-    maxCopperPerDay: 50,   // 每日对局铜板上限
-    maxAdPerDay: 3,        // 每日广告次数上限
-    maxSharePerDay: 5,     // 每日分享次数上限
+    energyPerGame: 5,      // 每局消耗精力
+    energyMax: 30,         // 精力上限
+    energyRecoverMinutes: 5, // 每 5 分钟自然恢复 1 点精力（离线也按时间戳累计）
+    maxAdPerDay: 3,        // 每日广告次数上限（看广告恢复精力）
+    adReward: 10,          // 看广告恢复精力点数
+    shareReward: 5,        // 分享恢复精力点数
+    signInReward: 5,       // 每日签到恢复精力点数
 
     // 段位体系（积分区间 -> 段位名称）
     ranks: [
@@ -66,15 +68,6 @@ module.exports = {
       drawAgree: +1,      // 同意对方求和
       disconnect: -5,     // 掉线/强退
       naturalDraw: -1,    // 自然和棋（双方各-1）
-    },
-
-    // 铜板明细规则
-    copperRewards: {
-      signin:  { base: 5,  bonus: 5,  max: 20,  dailyLimit: 1   }, // 签到阶梯奖励
-      game:    { amount: 5,  dailyLimit: 10  },                     // 完成对局
-      ad:      { amount: 20, dailyLimit: 3   },                     // 观看广告
-      share:   { amount: 10, dailyLimit: 5   },                     // 分享
-      task:    { min: 10, max: 30, dailyLimit: 1 },                 // 每日任务
     },
   },
 

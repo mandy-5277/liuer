@@ -118,9 +118,6 @@ async function dispatch(ws, msg) {
       case 'sign_in':
         await handleSignIn(ws);
         break;
-      case 'buy_energy':
-        await handleBuyEnergy(ws);
-        break;
       case 'get_transactions':
         await handleGetTransactions(ws, data);
         break;
@@ -212,7 +209,7 @@ async function handleLogin(ws, data) {
         winRate: user.winRate,
         energy: user.energy,
         energyMax: user.energyMax,
-        copper: user.copper,
+        energyRecoverAt: user.energyRecoverAt || 0,
         regretCards: user.regretCards,
         renameCards: user.renameCards,
         settings: user.settings,
@@ -238,8 +235,7 @@ async function handleLogin(ws, data) {
         rankScore: fallbackUser.rankScore,
         rankName: fallbackUser.rankName,
         totalGames: 0, wins: 0, losses: 0, draws: 0, winRate: 0,
-        energy: 30, energyMax: 30,
-        copper: 100,
+        energy: 30, energyMax: 30, energyRecoverAt: 0,
         regretCards: 0, renameCards: 0,
         settings: { soundEnabled: true, vibrationEnabled: true, musicEnabled: true },
         signinStreak: 0, lastSigninDate: '',
@@ -343,7 +339,6 @@ async function handleGetProfile(ws) {
       maxRankScore: user.maxRankScore,
       energy: user.energy,
       energyMax: user.energyMax,
-      copper: user.copper,
       regretCards: user.regretCards,
       renameCards: user.renameCards,
       settings: user.settings,
@@ -413,41 +408,19 @@ async function handleSignIn(ws) {
 
   const result = await checkinService.checkin(openid);
   if (result.success) {
+    // 签到奖励精力（不再发放铜板）
+    const energyRes = await userService.addEnergy(openid, result.bonus || 5);
     sendToPlayer(openid, {
       cmd: 'sign_in_result',
       data: {
         streak: result.streak,
         dayIndex: result.dayIndex,
-        rewardCopper: result.rewardCopper,
-        copper: result.copper,
+        energy: energyRes.energy,
       },
     });
-    // 资源更新通知
     sendToPlayer(openid, {
       cmd: 'resource_update',
-      data: { copper: result.copper },
-    });
-  } else {
-    sendToPlayer(openid, { cmd: 'error', data: { errMsg: result.errMsg } });
-  }
-}
-
-async function handleBuyEnergy(ws) {
-  const openid = getOpenid(ws);
-  if (!openid) return;
-
-  const result = await userService.buyEnergy(openid);
-  if (result.success) {
-    // 记录交易
-    await transactionService.record(openid, 'purchase_energy', -30, '', '购买精力x10');
-
-    sendToPlayer(openid, {
-      cmd: 'buy_energy_result',
-      data: { energy: result.energy, copper: result.copper },
-    });
-    sendToPlayer(openid, {
-      cmd: 'resource_update',
-      data: { energy: result.energy, copper: result.copper },
+      data: { energy: energyRes.energy, energyRecoverAt: energyRes.energyRecoverAt || 0 },
     });
   } else {
     sendToPlayer(openid, { cmd: 'error', data: { errMsg: result.errMsg } });
@@ -472,15 +445,15 @@ async function handleAdReward(ws) {
   if (!openid) return;
 
   // TODO: 验证广告回调（微信激励视频广告）
-  const result = await userService.addEnergy(openid, 5);
+  const result = await userService.addEnergy(openid, 10);
   if (result.success) {
     sendToPlayer(openid, {
       cmd: 'ad_reward_result',
-      data: { energy: result.energy, reward: 5 },
+      data: { energy: result.energy, reward: 10 },
     });
     sendToPlayer(openid, {
       cmd: 'resource_update',
-      data: { energy: result.energy },
+      data: { energy: result.energy, energyRecoverAt: result.energyRecoverAt || 0 },
     });
   }
 }
@@ -489,17 +462,16 @@ async function handleShareReward(ws) {
   const openid = getOpenid(ws);
   if (!openid) return;
 
-  // TODO: 验证分享回调
-  const result = await userService.updateCopper(openid, 10);
-  await transactionService.record(openid, 'share', 10, '', '分享获得');
+  // 分享奖励精力（不再发放铜板）
+  const result = await userService.addEnergy(openid, 5);
   if (result.success) {
     sendToPlayer(openid, {
       cmd: 'share_reward_result',
-      data: { copper: result.copper, reward: 10 },
+      data: { energy: result.energy, reward: 5 },
     });
     sendToPlayer(openid, {
       cmd: 'resource_update',
-      data: { copper: result.copper },
+      data: { energy: result.energy, energyRecoverAt: result.energyRecoverAt || 0 },
     });
   }
 }
@@ -558,8 +530,6 @@ function createFallbackUser(openid, nickName, avatarUrl) {
     maxRankScore: 0,
     energy: 30,
     energyMax: 30,
-    copper: 100,
-    dailyCopperEarned: 0,
     lastSigninDate: '',
     signinStreak: 0,
     regretCards: 0,

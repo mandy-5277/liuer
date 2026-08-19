@@ -20,6 +20,7 @@ const { port, wsHeartbeatInterval, wechat } = require('./config');
 const { dispatch } = require('./ws/handler');
 const { wsMap, removeConnection, gameSessions, findActiveGameByPlayer, handlePlayerDisconnect } = require('./services/session');
 const { initSchema } = require('./db/mysql');
+const { ensureEnergySchema } = require('./services/data');
 const redis = require('./db/redis');
 
 // ========== Express HTTP 服务 ==========
@@ -58,7 +59,6 @@ app.post('/api/auth/wx-login', async (req, res) => {
       ok: true,
       openid: mockOpenid,
       unionid: '',
-      session_key: '',
       isMock: true,
     });
   }
@@ -88,7 +88,6 @@ app.post('/api/auth/wx-login', async (req, res) => {
           ok: true,
           openid: result.openid,
           unionid: result.unionid || '',
-          session_key: result.session_key || '',
         });
       } catch (err) {
         console.error('[Auth] 解析微信返回失败:', err);
@@ -225,6 +224,13 @@ async function start() {
     console.error('[MySQL] 初始化表结构失败:', err.message);
     console.error('请检查 MySQL 连接配置（.env 中的 MYSQL_*）');
     process.exit(1);
+  }
+
+  // 确保精力恢复时间戳字段存在
+  try {
+    await ensureEnergySchema();
+  } catch (err) {
+    console.error('[MySQL] 精力字段初始化失败:', err.message);
   }
 
   // 确认 Redis 可用

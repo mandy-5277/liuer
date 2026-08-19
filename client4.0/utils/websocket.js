@@ -1,5 +1,5 @@
 /**
- * 六儿 小游戏版 — WebSocket 管理器
+ * 下六儿 小游戏版 — WebSocket 管理器
  * （由小程序版 client/miniprogram/utils/websocket.js 平移而来，逻辑不变）
  *
  * 小游戏同样支持 wx.connectSocket / wx.onSocket* / wx.sendSocketMessage，

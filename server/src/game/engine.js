@@ -530,6 +530,15 @@ class GameEngine {
       durationMs: Date.now() - this.turnStartTime,
     });
 
+    // 每揪掉一枚敌方棋子后立即检查：对手棋子被揪光则直接绝杀结算
+    // （即使本回合还有剩余揪子次数，也无需继续等待）
+    if (getStoneCount(this.board, enemyColor) === 0) {
+      return this.settleGame(
+        color === BLACK ? GameResult.BLACK_WIN : GameResult.WHITE_WIN,
+        EndReason.CHECKMATE
+      );
+    }
+
     if (this[myCatchKey] <= 0) {
       this[myCatchKey] = 0;
 
@@ -537,12 +546,6 @@ class GameEngine {
       const opponent = this.getOpponentColor(color);
 
       // 检查对手是否有可行动空间
-      if (getStoneCount(this.board, opponent) === 0) {
-        return this.settleGame(
-          color === BLACK ? GameResult.BLACK_WIN : GameResult.WHITE_WIN,
-          EndReason.CHECKMATE
-        );
-      }
       if (!hasAvailableMove(opponent, this.board)) {
         return this.settleGame(
           color === BLACK ? GameResult.BLACK_WIN : GameResult.WHITE_WIN,
@@ -840,7 +843,7 @@ class GameEngine {
       whiteCatchNum: this.whiteCatchNum,
       blackPlayer: this.blackPlayer,
       whitePlayer: this.whitePlayer,
-      remainingTime: this.getRemainingTime(),
+      remainingTime: Math.ceil(this.getRemainingTime() / 1000),
       noCatchRoundCount: this.noCatchRoundCount,
       moves: this.moves,
       startedAt: this.startedAt,
