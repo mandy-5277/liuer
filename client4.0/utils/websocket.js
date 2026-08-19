@@ -28,6 +28,7 @@ class WsManager {
   constructor() {
     this.openid = '';
     this.isConnected = false;
+    this._loggedIn = false;  // 是否已收到 login_success，只有登录成功后才直发业务指令
     this.reconnectCount = 0;
     this.heartbeatTimer = null;
     this.handlers = {};
@@ -51,13 +52,17 @@ class WsManager {
     wx.onSocketOpen(() => {
       console.log('[WS] 连接成功 (直连)');
       this.isConnected = true;
+      this._loggedIn = false;  // socket 刚打开，登录状态重置
       this.reconnectCount = 0;
 
-      // 仅发送登录请求，业务指令必须等 login_success 回执后再发，
-      // 否则服务端还未将该连接注册到 wsMap，会返回"请先登录"。
+      // 仅发送登录请求（直接发，绕过 _loggedIn 闸门），业务指令必须等
+      // login_success 回执后再发，否则服务端还未将该连接注册到 wsMap，会返回"请先登录"。
       const nickName = this._pendingNickName || '';
       const avatarUrl = this._pendingAvatarUrl || '';
-      this.send('login', { openid: this.openid, nickName, avatarUrl });
+      wx.sendSocketMessage({
+        data: JSON.stringify({ cmd: 'login', data: { openid: this.openid, nickName, avatarUrl }, seq: ++this.seq }),
+        fail: (err) => { console.error('[WS] 发送 login 失败:', err.errMsg); },
+      });
 
       // resolve connect() Promise（仅表示 socket 已打开，不代表已登录）
       if (this._connectResolve) {
@@ -74,6 +79,7 @@ class WsManager {
 
         // 收到 login_success 后启动心跳，并 flush 积压的业务指令
         if (msg.cmd === 'login_success') {
+          this._loggedIn = true;
           if (!this._heartbeatStarted) {
             this._heartbeatStarted = true;
             this._startHeartbeat();
@@ -90,6 +96,7 @@ class WsManager {
     wx.onSocketClose((res) => {
       console.log('[WS] 连接关闭, code:', res.code, 'reason:', res.reason);
       this.isConnected = false;
+      this._loggedIn = false;  // 登录态随连接失效，业务指令重新入队
       this._stopHeartbeat();
       this._heartbeatStarted = false;
 
@@ -206,12 +213,17 @@ class WsManager {
       seq: ++this.seq,
     };
 
-    if (this.isConnected) {
+    // 仅在「已连接 且 已登录成功」时直发；否则入队，等 login_success 后 flush。
+    // 这样可避免 socket 关闭瞬间(isConnected 尚未置 false)发出的业务消息被丢到已断开的连接上，
+    // 服务端已清理该连接后会返回"请先登录"。
+    if (this.isConnected && this._loggedIn) {
       wx.sendSocketMessage({
         data: JSON.stringify(msg),
         success: () => { /* sent */ },
         fail: (err) => {
           console.error(`[WS] 发送 ${cmd} 失败:`, err.errMsg);
+          // 发送失败（连接已断），重新入队等待重连后 flush
+          this.pendingQueue.push(msg);
         },
       });
     } else {
