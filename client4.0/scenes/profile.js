@@ -64,46 +64,65 @@ function formatCd(ts) {
 
 function drawHeader(ctx) {
   const sbh = state.statusBarHeight;
-  const headH = 170;
+  const headH = 180;
   const g = ctx.createLinearGradient(0, 0, 0, headH);
   g.addColorStop(0, '#544339');
   g.addColorStop(1, '#3C2F28');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, headH);
 
-  const cy = sbh + 78;
-  // 头像
-  drawAvatar(ctx, { x: 36, y: cy, r: 34, label: (state.userInfo && state.userInfo.nickName) || '玩', ring: true });
-  // 昵称 + 段位徽章
-  drawText(ctx, (state.userInfo && state.userInfo.nickName) || '玩家', 84, cy - 16, { color: '#FFFFFF', fontSize: 24, bold: true });
-  const badgeX = 84, badgeY = cy + 8;
-  roundRect(ctx, badgeX, badgeY, 110, 26, 13);
+  const cy = sbh + 84;
+
+  // 左列：头像 + 昵称（限 6 字不换行）+ 段位徽章
+  const leftW = Math.round(W * 0.58); // 左列占 58%，给右侧统计留位
+  drawAvatar(ctx, {
+    x: 40, y: cy, r: 30,
+    label: ((state.userInfo && state.userInfo.nickName) || '玩').slice(0, 1),
+    avatar: (state.userInfo && state.userInfo.avatarUrl) || '', ring: true,
+  });
+  const nickRaw = (state.userInfo && state.userInfo.nickName) || '玩家';
+  const nick = nickRaw.slice(0, 6); // 限制昵称最多 6 个汉字（按显示宽度截断）
+  const nickX = 82;
+  drawText(ctx, nick, nickX, cy - 14, { color: '#FFFFFF', fontSize: 22, bold: true });
+  const badgeX = nickX, badgeY = cy + 12;
+  const badgeText = (state.rankName || '初级小六');
+  const badgeW = Math.max(96, badgeText.length * 12 + 24);
+  roundRect(ctx, badgeX, badgeY, badgeW, 24, 12);
   ctx.fillStyle = 'rgba(212,168,67,0.22)';
   ctx.fill();
-  drawText(ctx, '🏅 ' + (state.rankName || '初级小六'), badgeX + 55, badgeY + 19, { color: '#D4A843', fontSize: 15, align: 'center', baseline: 'middle', bold: true });
+  drawText(ctx, '🏅 ' + badgeText, badgeX + badgeW / 2, badgeY + 12, { color: '#D4A843', fontSize: 13, align: 'center', baseline: 'middle', bold: true });
 
-  // 右侧统计
+  // 右列：积分 / 胜率 / 场次（紧凑三组，固定宽，互不重叠）
+  const totalGames = (state.wins || 0) + (state.losses || 0) + (state.draws || 0);
   const stats = [
-    { num: state.rankScore || 0, label: '积分' },
+    { num: '' + (state.rankScore || 0), label: '积分' },
     { num: (state.winRate || 0) + '%', label: '胜率' },
-    { num: (state.wins || 0) + (state.losses || 0) + (state.draws || 0) || 0, label: '场次' },
+    { num: '' + totalGames, label: '场次' },
   ];
-  let sx = W - 30 - 60;
-  stats.forEach((s) => {
-    drawText(ctx, '' + s.num, sx, cy - 8, { color: '#FFFFFF', fontSize: 22, align: 'center', bold: true });
-    drawText(ctx, s.label, sx, cy + 16, { color: 'rgba(255,255,255,0.6)', fontSize: 12, align: 'center' });
-    sx -= 62;
+  const rightX = leftW;             // 右列起始 x
+  const rightW = W - rightX;        // 右列宽
+  const itemW = Math.floor(rightW / stats.length);
+  stats.forEach((s, i) => {
+    const cx = rightX + i * itemW + itemW / 2;
+    drawText(ctx, s.num, cx, cy - 14, { color: '#FFFFFF', fontSize: 20, align: 'center', bold: true });
+    drawText(ctx, s.label, cx, cy + 14, { color: 'rgba(255,255,255,0.6)', fontSize: 12, align: 'center' });
   });
 }
 
 function drawEnergyCard(ctx, topY) {
-  const cardX = 16, cardW = W - 32, cardH = 96;
+  const cardX = 16, cardW = W - 32, cardH = 108;
   drawCard(ctx, { x: cardX, y: topY, w: cardW, h: cardH, radius: 14 });
-  drawText(ctx, '⚡ 精力', cardX + 16, topY + 30, { color: PALETTE.textDim, fontSize: 14, bold: true });
-  drawText(ctx, (state.energy.current || 0) + '/' + (state.energy.max || 30), cardX + 16, topY + 62, { color: PALETTE.text, fontSize: 26, bold: true });
 
-  // 精力条
-  const barX = cardX + 120, barY = topY + 44, barW = cardW - 120 - 110 - 12, barH = 10;
+  // 上半：左侧"⚡ 精力 30/30"，右侧"下次恢复 XX:XX"（不与精力条同行）
+  drawText(ctx, '⚡ 精力', cardX + 16, topY + 30, { color: PALETTE.textDim, fontSize: 14, bold: true });
+  drawText(ctx, (state.energy.current || 0) + '/' + (state.energy.max || 30), cardX + 16, topY + 58, { color: PALETTE.text, fontSize: 26, bold: true });
+
+  // 右上：下次恢复与倒计时（纵向独立于精力条）
+  drawText(ctx, '下次恢复', cardX + cardW - 16, topY + 26, { color: PALETTE.textDim, fontSize: 12, align: 'right' });
+  drawText(ctx, formatCd(state.energy.nextRecoverAt), cardX + cardW - 16, topY + 56, { color: PALETTE.gold, fontSize: 22, align: 'right', bold: true });
+
+  // 下半：精力条（满宽，与上方文字纵向分开 16px）
+  const barX = cardX + 16, barY = topY + 80, barW = cardW - 32, barH = 10;
   roundRect(ctx, barX, barY, barW, barH, 5);
   ctx.fillStyle = PALETTE.panelBorder;
   ctx.fill();
@@ -113,32 +132,47 @@ function drawEnergyCard(ctx, topY) {
     ctx.fillStyle = PALETTE.goldBright;
     ctx.fill();
   }
-  // 下次恢复
-  drawText(ctx, '下次恢复', cardX + cardW - 100, topY + 38, { color: PALETTE.textDim, fontSize: 12, align: 'right' });
-  drawText(ctx, formatCd(state.energy.nextRecoverAt), cardX + cardW - 100, topY + 62, { color: PALETTE.gold, fontSize: 22, align: 'right', bold: true });
   return cardH;
 }
 
 function drawSignInCard(ctx, topY) {
-  const cardX = 16, cardW = W - 32, cardH = 132;
+  const cardX = 16, cardW = W - 32, cardH = 176;
   drawCard(ctx, { x: cardX, y: topY, w: cardW, h: cardH, radius: 14 });
-  drawText(ctx, '每日签到', cardX + 16, topY + 32, { color: PALETTE.text, fontSize: 18, bold: true });
-  drawText(ctx, '+5 精力', cardX + 16, topY + 54, { color: PALETTE.gold, fontSize: 14, bold: true });
 
-  // 7 天签到格（简单示意：金色为已签到/今天）
-  const dayW = 30, dayGap = 5, startX = cardX + 16, dayY = topY + 74;
+  // 标题
+  drawText(ctx, '每日签到', cardX + 16, topY + 32, { color: PALETTE.text, fontSize: 18, bold: true });
+  drawText(ctx, '工作日 +5 精力 · 周末 +10 精力', cardX + 16, topY + 56, { color: PALETTE.textDim, fontSize: 12 });
+
+  // 7 天签到格：一行排开，含"日 + 奖励金额"（周六/日为 +10）
+  const dayW = (cardW - 32 - 6 * 6) / 7; // 7 格 + 6 间隙（4px），平均宽
+  const dayGap = 6;
+  const startX = cardX + 16;
+  const dayY = topY + 76;
+  const dayH = 48;
+  const rewards = [5, 5, 5, 5, 5, 10, 10]; // 周一~日
+  const todayIdx = (new Date().getDay() + 6) % 7; // getDay: 0=周日 → 6；周一=1 → 0
   WEEK.forEach((d, i) => {
     const dx = startX + i * (dayW + dayGap);
-    roundRect(ctx, dx, dayY, dayW, 34, 6);
-    ctx.fillStyle = i === 0 ? PALETTE.goldBright : '#F2EEE6';
+    const isToday = i === todayIdx;
+    const isPast = i < todayIdx; // 简化为"已签过"的视觉提示（实际历史需服务端）
+    // 背景：今天金色，过去的浅色，未到灰色
+    ctx.fillStyle = isToday ? PALETTE.goldBright : (isPast ? '#E8E3DA' : '#F2EEE6');
+    roundRect(ctx, dx, dayY, dayW, dayH, 8);
     ctx.fill();
-    drawText(ctx, d, dx + dayW / 2, dayY + 22, { color: i === 0 ? '#FFFFFF' : PALETTE.textDim, fontSize: 13, align: 'center', baseline: 'middle', bold: i === 0 });
+    // 日（周几）
+    drawText(ctx, d, dx + dayW / 2, dayY + 14, {
+      color: isToday ? '#FFFFFF' : PALETTE.text, fontSize: 13, align: 'center', baseline: 'middle', bold: isToday,
+    });
+    // 奖励
+    drawText(ctx, '+' + rewards[i], dx + dayW / 2, dayY + 34, {
+      color: isToday ? '#FFFFFF' : PALETTE.text, fontSize: 15, align: 'center', baseline: 'middle', bold: true,
+    });
   });
 
-  // 签到按钮（右侧）：已签到则禁用
+  // 签到按钮：单独一行在底部（全宽），与日格纵向分开
   rects.signInBtn = drawButton(ctx, {
-    text: checkedInToday ? '今日已签 ✓' : '今日签到',
-    x: cardX + cardW - 116, y: topY + 70, w: 100, h: 42,
+    text: checkedInToday ? '今日已签到 ✓ 明天再来' : '今日签到 +' + (todayIdx >= 5 ? 10 : 5) + ' 精力',
+    x: cardX + 16, y: topY + 136, w: cardW - 32, h: 26,
     fill: checkedInToday ? PALETTE.panelBorder : PALETTE.gold,
     textColor: checkedInToday ? PALETTE.textDim : PALETTE.textOnGold,
     fontSize: 16, border: checkedInToday ? PALETTE.panelBorder : null,
@@ -147,7 +181,7 @@ function drawSignInCard(ctx, topY) {
 }
 
 function drawHistory(ctx, topY) {
-  const cardX = 16, cardW = W - 32, cardH = 120;
+  const cardX = 16, cardW = W - 32, cardH = 100;
   drawCard(ctx, { x: cardX, y: topY, w: cardW, h: cardH, radius: 14 });
   drawText(ctx, '历史战绩', cardX + 16, topY + 32, { color: PALETTE.text, fontSize: 18, bold: true });
   // 空态占位
@@ -167,7 +201,7 @@ function onDraw(ctx) {
 
   drawHeader(ctx);
 
-  let topY = 170 + 12;
+  let topY = 180 + 12;
   topY += drawEnergyCard(ctx, topY) + 12;
   topY += drawSignInCard(ctx, topY) + 12;
   topY += drawHistory(ctx, topY);

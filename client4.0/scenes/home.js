@@ -7,8 +7,9 @@
  */
 
 const { wsManager } = require('../utils/websocket');
-const { state } = require('../state');
+const { state, saveProfile, AVATAR_PRESETS, randomNickname } = require('../state');
 const { PALETTE, drawButton, drawText, drawCard, drawAvatar, hit, roundRect, drawBottomNav } = require('../utils/ui');
+const { SERVER_BASE } = require('../config');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -16,12 +17,17 @@ let H = 812;
 let rects = {};
 
 // 浮层状态
-let overlay = null;          // null | 'matching' | 'room'
+let overlay = null;          // null | 'matching' | 'room' | 'energy' | 'profileSetup'
 let overlayTab = 'create';   // 'create' 复制房间号 | 'join' 进入房间
 let roomCode = '';           // 当前创建/加入的房间号
 let joinInput = '';          // 进入房间输入的房间号
 let joinError = '';
 const inviters = [];         // 收到的邀请 { roomId, nickName }
+
+// 完善资料浮层状态
+let profileNick = '';
+let profileAvatar = 'emoji:' + AVATAR_PRESETS[0];
+let profileAvatarIndex = 0;
 
 let fightPhase = 0;          // 棋盘打架动画相位
 
@@ -34,6 +40,14 @@ function onEnter() {
   joinInput = '';
   joinError = '';
   registerWs();
+
+  // 首次进入且未设置资料：弹出"完善资料"浮层
+  if (state.showProfileSetup) {
+    profileNick = randomNickname();
+    profileAvatar = 'emoji:' + AVATAR_PRESETS[0];
+    profileAvatarIndex = 0;
+    overlay = 'profileSetup';
+  }
 
   // 分享卡片带房间号 → 启动后自动进房
   if (state.pendingRoom) {
@@ -126,18 +140,29 @@ function removeWs() {
 function onDraw(ctx) {
   W = ctx.canvas.width;
   H = ctx.canvas.height;
+
+  // 首次进入且未设置资料：即刻弹出"完善资料"浮层（login 异步完成前 onEnter 可能未命中，
+  // 这里在每帧检测，保证一旦 showProfileSetup 置位立即引导，不先进入正常游戏）
+  if (state.showProfileSetup && !overlay) {
+    profileNick = randomNickname();
+    profileAvatar = 'emoji:' + AVATAR_PRESETS[0];
+    profileAvatarIndex = 0;
+    overlay = 'profileSetup';
+  }
+
   drawBackground(ctx);
   drawTopBar(ctx);
   const btnBottom = drawCenter(ctx);
   const navTop = H - 64; // 底部导航顶
   drawBottomNav(ctx, 'home', rects);
-  drawProfileCard(ctx, navTop - 152);
-  drawRuleLink(ctx, navTop - 22);
+  drawProfileCard(ctx, navTop - 150);
+  drawRuleLink(ctx, navTop - 24);
   rects.W = W; rects.H = H;
 
   if (overlay === 'matching') drawMatchingOverlay(ctx);
   else if (overlay === 'room') drawRoomOverlay(ctx);
   else if (overlay === 'energy') drawEnergyOverlay(ctx);
+  else if (overlay === 'profileSetup') drawProfileSetupOverlay(ctx);
 
   // 微信用户信息授权提示遮罩（授权浮层位于屏幕底部，这里仅作视觉提示）
   if (state.authPending) drawAuthMask(ctx);
@@ -159,14 +184,15 @@ function drawBackground(ctx) {
   ctx.fillRect(0, 0, W, H);
 }
 
-// 顶部资源栏：精力值 + 下次恢复倒计时
+// 顶部资源栏：仅显示下次恢复倒计时（精力值已在个人信息卡展示，避免重复）
 function drawTopBar(ctx) {
   const y = state.statusBarHeight + 4;
   const right = W - 16;
   const recover = state.energy.nextRecoverAt > Date.now()
     ? formatCd(state.energy.nextRecoverAt)
     : '';
-  drawText(ctx, '⚡ ' + state.energy.current + '/' + state.energy.max + (recover ? '  下次+' + recover : ''), right, y + 16, { color: PALETTE.green, fontSize: 15, align: 'right' });
+  if (!recover) return;
+  drawText(ctx, '⏳ 下次+' + recover, right, y + 16, { color: PALETTE.textDim, fontSize: 13, align: 'right' });
 }
 
 // 中央：标题 + 棋盘动画 + 按钮
@@ -174,10 +200,14 @@ function drawCenter(ctx) {
   const cx = W / 2;
   const topY = state.statusBarHeight + 40;
 
-  drawText(ctx, '下六儿', cx, topY + 16, { color: PALETTE.text, fontSize: 28, align: 'center', bold: true });
+  // 标题：选用古朴/乡村气息的中文字体（楷体/华文中宋等）
+  drawText(ctx, '下六儿', cx, topY + 16, {
+    color: PALETTE.text, fontSize: 30, align: 'center', bold: true,
+    family: '"KaiTi","STKaiti","楷体","STZhongsong","华文中宋","华文仿宋","Microsoft YaHei",sans-serif',
+  });
 
-  // 棋盘动画卡 200x200（适配 667 高度）
-  const bSize = 200;
+  // 棋盘动画卡（随屏高自适应，为下方按钮与信息卡留位）
+  const bSize = Math.min(165, Math.round(H * 0.24));
   const bx = (W - bSize) / 2;
   const by = topY + 28;
   drawCard(ctx, { x: bx, y: by, w: bSize, h: bSize, radius: 16 });
@@ -185,16 +215,19 @@ function drawCenter(ctx) {
 
   drawText(ctx, '落子布局 · 揪子博弈 · 走子决胜', cx, by + bSize + 20, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
 
-  // 按钮组
-  const btnW = W - 94;
-  const btnH = 44;
+  // 按钮组：增高 + 增大间隔 + 下移（相对底部导航自适应，按钮顶落在屏幕中下部，方便点按）
+  const navTop = H - 64;
+  const btnW = W - 84;
+  const btnH = 52;
   const mx = (W - btnW) / 2;
-  const y1 = by + bSize + 32;
-  const y2 = y1 + btnH + 8;
+  let y1 = navTop - 282;
+  const sloganBottom = by + bSize + 24;
+  if (y1 < sloganBottom + 22) y1 = sloganBottom + 22; // 避免与 slogan 重叠
+  const y2 = y1 + btnH + 14;
 
-  drawText(ctx, '消耗 5 点精力', cx, y1 - 6, { color: PALETTE.textDim, fontSize: 11, align: 'center' });
-  rects.match = drawButton(ctx, { text: '⚔ 随机匹配', x: mx, y: y1, w: btnW, h: btnH, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 20 });
-  rects.friend = drawButton(ctx, { text: '👥 邀请好友开局', x: mx, y: y2, w: btnW, h: btnH, fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 20, border: PALETTE.gold });
+  drawText(ctx, '消耗 5 点精力', cx, y1 - 8, { color: PALETTE.textDim, fontSize: 12, align: 'center' });
+  rects.match = drawButton(ctx, { text: '⚔ 随机匹配', x: mx, y: y1, w: btnW, h: btnH, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 22 });
+  rects.friend = drawButton(ctx, { text: '👥 邀请好友开局', x: mx, y: y2, w: btnW, h: btnH, fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 22, border: PALETTE.gold });
   return y2 + btnH;
 }
 
@@ -222,25 +255,30 @@ function drawBoardAnimation(ctx, ox, oy, area) {
       ctx.fill();
     }
   }
-  // 打架动画：两子左右来回
-  const off = Math.sin(Date.now() / 400) * 10;
+  // 打架动画：两子左右来回（参考 figma fight1/fight2，幅度 ±12px）
+  const off = Math.sin(Date.now() / 420) * 12;
   const r1 = step * 0.36;
   drawPieceAt(ctx, ox + 2 * step + off, oy + 2 * step, r1, 'black');
   drawPieceAt(ctx, ox + 3 * step - off, oy + 3 * step, r1, 'white');
 }
 
 function drawPieceAt(ctx, x, y, r, color) {
+  // 阴影
   ctx.beginPath();
   ctx.arc(x, y + 1, r, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(60,47,40,0.18)';
   ctx.fill();
+  // 棋子本体（半透明，呼应 figma 风格）
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = color === 'black' ? PALETTE.blackPiece : PALETTE.whitePiece;
-  ctx.fill();
-  if (color === 'white') {
+  if (color === 'black') {
+    ctx.fillStyle = 'rgba(26,26,26,0.55)';
+    ctx.fill();
+  } else {
+    ctx.fillStyle = 'rgba(254,254,254,0.55)';
+    ctx.fill();
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = PALETTE.panelBorder;
+    ctx.strokeStyle = 'rgba(208,208,208,0.7)';
     ctx.stroke();
   }
 }
@@ -253,7 +291,7 @@ function drawProfileCard(ctx, cardY) {
   drawCard(ctx, { x: cardX, y: cardY, w: cardW, h: cardH, radius: 16 });
 
   const cy = cardY + 30;
-  drawAvatar(ctx, { x: cardX + 34, y: cy, r: 22, label: (state.userInfo && state.userInfo.nickName) || '我', ring: true });
+  drawAvatar(ctx, { x: cardX + 34, y: cy, r: 22, label: (state.userInfo && state.userInfo.nickName) || '我', avatar: (state.userInfo && state.userInfo.avatarUrl) || '', ring: true });
 
   drawText(ctx, (state.userInfo && state.userInfo.nickName) || '我', cardX + 70, cy - 8, { color: PALETTE.text, fontSize: 19, bold: true });
   // 段位徽章
@@ -304,7 +342,7 @@ function drawRuleLink(ctx, y) {
 // ========== 匹配浮层 ==========
 function drawMatchingOverlay(ctx) {
   dim(ctx);
-  const pw = W * 0.8, ph = 240, px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.8, ph = Math.max(220, Math.round(H * 0.36)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
   drawText(ctx, '匹配中...', W / 2, py + 70, { color: PALETTE.text, fontSize: 32, align: 'center', bold: true });
   drawText(ctx, '正在为你寻找对手', W / 2, py + 120, { color: PALETTE.textDim, fontSize: 20, align: 'center' });
@@ -314,7 +352,7 @@ function drawMatchingOverlay(ctx) {
 // ========== 好友开局浮层（双 Tab） ==========
 function drawRoomOverlay(ctx) {
   dim(ctx);
-  const pw = W * 0.86, ph = 380, px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.86, ph = Math.max(360, Math.round(H * 0.58)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
 
   // 关闭按钮
@@ -386,6 +424,7 @@ function onTouch(x, y) {
   }
   if (overlay === 'room') { handleRoomTouch(x, y); return; }
   if (overlay === 'energy') { handleEnergyTouch(x, y); return; }
+  if (overlay === 'profileSetup') { handleProfileSetupTouch(x, y); return; }
 
   if (hit(rects.match, x, y)) { startMatch(); return; }
   if (hit(rects.friend, x, y)) { openInvite(); return; }
@@ -473,7 +512,7 @@ function shareRoom() {
 // ========== 精力不足恢复浮层 ==========
 function drawEnergyOverlay(ctx) {
   dim(ctx);
-  const pw = W * 0.86, ph = 420, px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.86, ph = Math.max(400, Math.round(H * 0.62)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
 
   rects.closeEnergy = { x: px + pw - 40, y: py + 12, w: 28, h: 28 };
@@ -512,6 +551,135 @@ function handleEnergyTouch(x, y) {
     overlay = null;
     return;
   }
+}
+
+// ========== 完善资料浮层（引导设置昵称 + 头像） ==========
+function drawProfileSetupOverlay(ctx) {
+  dim(ctx);
+  const pw = W * 0.88, ph = Math.max(440, Math.round(H * 0.68)), px = (W - pw) / 2, py = (H - ph) / 2;
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
+
+  drawText(ctx, '完善资料', W / 2, py + 44, { color: PALETTE.text, fontSize: 28, align: 'center', bold: true });
+
+  // 当前选中的头像（大圆）
+  const bigR = 46;
+  drawAvatar(ctx, { x: W / 2, y: py + 110, r: bigR, avatar: profileAvatar, label: profileNick.slice(0, 1), ring: true });
+
+  // 预设头像排（6 个 emoji）
+  const avatarR = 26;
+  const gap = (pw - 48 - avatarR * 2 * 3) / 2; // 每行3个
+  const startX = px + 24 + avatarR;
+  const rowY = py + 175;
+  rects.presetAvatars = [];
+  AVATAR_PRESETS.forEach((emoji, i) => {
+    const ax = startX + (i % 3) * ((avatarR * 2 + gap));
+    const ay = rowY + Math.floor(i / 3) * (avatarR * 2 + 14);
+    const selected = i === profileAvatarIndex;
+    ctx.beginPath();
+    ctx.arc(ax, ay, avatarR + 3, 0, Math.PI * 2);
+    ctx.fillStyle = selected ? PALETTE.gold : '#F0E9DB';
+    ctx.fill();
+    drawAvatar(ctx, { x: ax, y: ay, r: avatarR, avatar: 'emoji:' + emoji, label: '' });
+    rects.presetAvatars.push({ x: ax - avatarR - 3, y: ay - avatarR - 3, w: avatarR * 2 + 6, h: avatarR * 2 + 6, emoji });
+  });
+
+  // 上传相册按钮
+  rects.uploadAvatar = drawButton(ctx, {
+    text: '上传相册图片', x: px + 40, y: py + 252, w: pw - 80, h: 44,
+    fill: PALETTE.panel, textColor: PALETTE.green, fontSize: 18, border: PALETTE.green,
+  });
+
+  // 昵称区
+  drawText(ctx, '我的昵称', px + 24, py + 318, { color: PALETTE.textDim, fontSize: 16 });
+  drawText(ctx, profileNick || '未设置', px + 24, py + 352, { color: PALETTE.text, fontSize: 24, bold: true });
+  rects.nickShuffle = drawButton(ctx, {
+    text: '换一个', x: px + pw - 180, y: py + 326, w: 80, h: 38,
+    fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 16, border: PALETTE.gold,
+  });
+  rects.nickEdit = drawButton(ctx, {
+    text: '输入昵称', x: px + pw - 92, y: py + 326, w: 72, h: 38,
+    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 16,
+  });
+
+  // 确定
+  rects.profileConfirm = drawButton(ctx, {
+    text: '开始游戏', x: px + 40, y: py + ph - 64, w: pw - 80, h: 48,
+    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 22,
+  });
+}
+
+function handleProfileSetupTouch(x, y) {
+  // 预设头像选择
+  if (rects.presetAvatars) {
+    for (let i = 0; i < rects.presetAvatars.length; i++) {
+      if (hit(rects.presetAvatars[i], x, y)) {
+        profileAvatarIndex = i;
+        profileAvatar = 'emoji:' + AVATAR_PRESETS[i];
+        return;
+      }
+    }
+  }
+  // 上传相册图片
+  if (hit(rects.uploadAvatar, x, y)) { uploadAvatar(); return; }
+  // 随机昵称
+  if (hit(rects.nickShuffle, x, y)) { profileNick = randomNickname(); return; }
+  // 输入昵称
+  if (hit(rects.nickEdit, x, y)) {
+    wx.showModal({
+      title: '设置昵称',
+      editable: true,
+      placeholderText: '请输入昵称（最多10字）',
+      success: (r) => { if (r.confirm && r.content && r.content.trim()) profileNick = r.content.trim().slice(0, 10); },
+    });
+    return;
+  }
+  // 确定
+  if (hit(rects.profileConfirm, x, y)) {
+    if (!profileNick.trim()) { wx.showToast({ title: '请先设置昵称', icon: 'none' }); return; }
+    saveProfile(profileNick.trim(), profileAvatar);
+    wsManager.send('update_profile', { nickName: profileNick.trim(), avatarUrl: profileAvatar });
+    overlay = null;
+    return;
+  }
+}
+
+/** 选择相册图片并上传，成功后作为头像 */
+function uploadAvatar() {
+  wx.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    sourceType: ['album'],
+    success: (res) => {
+      const tempPath = res.tempFilePaths && res.tempFilePaths[0];
+      if (!tempPath) return;
+      wx.showLoading({ title: '上传中', mask: true });
+      // 转 base64
+      wx.getFileSystemManager().readFile({
+        filePath: tempPath,
+        encoding: 'base64',
+        success: (fr) => {
+          wx.request({
+            url: SERVER_BASE + '/api/avatar/upload',
+            method: 'POST',
+            header: { 'Content-Type': 'application/json' },
+            data: { openid: state.openid || '', base64: fr.data || '' },
+            success: (rr) => {
+              wx.hideLoading();
+              if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
+                profileAvatar = rr.data.url;
+                profileAvatarIndex = -1;
+                wx.showToast({ title: '头像已更新', icon: 'success' });
+              } else {
+                wx.showToast({ title: '上传失败', icon: 'none' });
+              }
+            },
+            fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+          });
+        },
+        fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
+      });
+    },
+  });
 }
 
 module.exports = { onEnter, onLeave, onDraw, onTouch, onWs: () => {} };

@@ -14,6 +14,9 @@
 
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const express = require('express');
 const { port, wsHeartbeatInterval, wechat } = require('./config');
@@ -103,6 +106,48 @@ app.post('/api/auth/wx-login', async (req, res) => {
 // 返回小程序 appid（供客户端 wx.login 使用）
 app.get('/api/auth/config', (req, res) => {
   res.json({ appid: wechat.appid });
+});
+
+// ========== 头像上传（用户自定义头像） ==========
+
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+// 静态服务上传的头像（真机通过 https://liuer.xin/uploads/xxx 访问）
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
+
+/**
+ * POST /api/avatar/upload  { openid, base64, ext }
+ * 接收小游戏上传的 base64 头像图片，保存到 uploads 目录并返回可访问 URL。
+ * 限制单张 2MB，仅允许常见图片扩展名。
+ */
+app.post('/api/avatar/upload', (req, res) => {
+  try {
+    const { openid = 'anon', base64 = '', ext = 'png' } = req.body || {};
+    if (!base64) {
+      return res.status(400).json({ ok: false, errMsg: '缺少 base64 数据' });
+    }
+    // 去掉可能带有的 data:image/xxx;base64, 前缀
+    const clean = base64.indexOf(',') >= 0 ? base64.slice(base64.indexOf(',') + 1) : base64;
+    const buf = Buffer.from(clean, 'base64');
+    if (buf.length > 2 * 1024 * 1024) {
+      return res.status(400).json({ ok: false, errMsg: '头像图片不能超过 2MB' });
+    }
+    const allowedExt = /^(png|jpe?g|gif|webp)$/i.test(ext) ? ext : 'png';
+    const name = 'a_' + crypto.randomBytes(8).toString('hex') + '.' + allowedExt;
+    const absPath = path.join(UPLOAD_DIR, name);
+    fs.writeFileSync(absPath, buf);
+    console.log('[Upload] 头像已保存:', name, '来源:', openid);
+    // 构造可访问的完整 URL（支持 Nginx 反代，返回 https://域名/uploads/xxx）
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.get('host') || 'liuer.xin';
+    const url = (process.env.PUBLIC_BASE_URL || (proto + '://' + host)) + '/uploads/' + name;
+    res.json({ ok: true, url });
+  } catch (err) {
+    console.error('[Upload] 头像保存失败:', err);
+    res.status(500).json({ ok: false, errMsg: '头像保存失败' });
+  }
 });
 
 // ========== 进程级崩溃保护（防止未捕获异常导致进程退出） ==========

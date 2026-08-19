@@ -11,10 +11,39 @@ const { SERVER_BASE } = require('./config');
 
 const SERVER_URL = SERVER_BASE;
 
+// ========== 完善资料配置 ==========
+
+/** 预设头像（emoji，avatarUrl 存 "emoji:xxx" 前缀格式） */
+const AVATAR_PRESETS = [
+  '👨🌾', // 农村男孩
+  '👩🌾', // 农村女孩
+  '👴',   // 农村老头
+  '👵',   // 农村老太
+  '🕶️',   // 农村混混
+  '💃',   // 农村美女
+];
+
+/** 随机昵称池（乡土/趣味风格） */
+const RANDOM_NICKNAMES = [
+  '快乐农夫', '麦田守望者', '大槐树下', '山野清风', '稻花香里',
+  '老村长', '小芳', '二狗子', '铁蛋儿', '翠花儿',
+  '黄土高坡', '溪边放牛', '田埂漫步', '晒谷场的风', '稻草人',
+  '老屋炊烟', '打谷场上', '看门大黄', '篱笆院', '井台打水',
+];
+
+/** 随机生成一个昵称 */
+function randomNickname() {
+  const i = Math.floor(Math.random() * RANDOM_NICKNAMES.length);
+  return RANDOM_NICKNAMES[i] + (Math.random() < 0.4 ? String(Math.floor(Math.random() * 90) + 10) : '');
+}
+
 const state = {
   // 用户信息（由服务端同步）
   userInfo: null,
   openid: null,
+
+  // 需要引导用户完善资料（昵称/头像）时置 true，由首页弹出"完善资料"浮层
+  showProfileSetup: false,
 
   // 游戏数据（由服务端 resource_update 事件同步更新）
   energy: { current: 5, max: 30, nextRecoverAt: 0 },
@@ -126,10 +155,10 @@ function fallbackInit() {
 }
 
 /**
- * 首次登录时请求微信用户信息授权。
- * 小游戏没有 WXML，使用 wx.createUserInfoButton 创建原生授权按钮浮在 Canvas 上方。
- * 授权成功后把 nickName/avatarUrl 写入 state 和本地缓存，再连接游戏服务器完成同步注册。
- * 若用户拒绝、超时或环境不支持授权按钮，则直接用空昵称连接，保证游戏可继续。
+ * 首次进入时引导用户完善资料。
+ * 小游戏无 WXML，且新版微信不再通过授权返回真实昵称头像，
+ * 因此连接服务器后，由首页弹出"完善资料"浮层，让用户选择预设头像
+ * （或上传相册图片）并设置昵称。
  */
 function ensureUserInfoAndConnect() {
   let stored = null;
@@ -138,70 +167,22 @@ function ensureUserInfoAndConnect() {
   } catch (e) { /* ignore */ }
   if (stored && (stored.nickName || stored.avatarUrl)) {
     state.userInfo = Object.assign({}, state.userInfo, stored);
+    state.showProfileSetup = false;
     connectGameServer();
     return;
   }
 
-  if (typeof wx.createUserInfoButton !== 'function') {
-    console.log('[State] 当前环境不支持 createUserInfoButton，直接连接');
-    connectGameServer();
-    return;
-  }
+  // 无本地资料：连接服务器（先以空昵称连接），并标记需要完善资料，由首页弹浮层引导。
+  state.showProfileSetup = true;
+  console.log('[State] 首次进入，引导完善昵称/头像');
+  connectGameServer();
+}
 
-  const info = wx.getSystemInfoSync();
-  const btnW = 240;
-  const btnH = 52;
-  const left = Math.round((info.windowWidth - btnW) / 2);
-  // 按钮放在屏幕底部空白处（"游戏规则"链接上方），避免与中央的匹配/邀请按钮重叠。
-  const top = Math.round(info.windowHeight - btnH - 130);
-
-  state.authPending = true;
-  console.log('[State] 请求微信用户信息授权');
-  const btn = wx.createUserInfoButton({
-    type: 'text',
-    text: '授权微信昵称头像',
-    style: {
-      left,
-      top,
-      width: btnW,
-      height: btnH,
-      lineHeight: btnH,
-      backgroundColor: '#8B6914',
-      color: '#FFFFFF',
-      textAlign: 'center',
-      fontSize: 18,
-      borderRadius: 8,
-    },
-  });
-
-  let handled = false;
-  const finish = (userInfo) => {
-    if (handled) return;
-    handled = true;
-    state.authPending = false;
-    try { btn.destroy(); } catch (e) { /* ignore */ }
-    if (userInfo) {
-      const { nickName, avatarUrl } = userInfo;
-      state.userInfo = Object.assign({}, state.userInfo, { nickName, avatarUrl });
-      try { wx.setStorageSync('userInfo', { nickName, avatarUrl }); } catch (e) { /* ignore */ }
-      console.log('[State] 获取用户信息成功:', nickName);
-    } else {
-      console.log('[State] 用户未授权或获取失败，使用空昵称继续');
-    }
-    connectGameServer();
-  };
-
-  const timer = setTimeout(() => finish(null), 5000);
-
-  btn.onTap((res) => {
-    clearTimeout(timer);
-    if (res.userInfo) {
-      finish(res.userInfo);
-    } else {
-      console.log('[State] 授权结果:', res);
-      finish(null);
-    }
-  });
+/** 保存用户自定的昵称/头像（完善资料浮层确定后调用） */
+function saveProfile(nickName, avatarUrl) {
+  state.userInfo = Object.assign({}, state.userInfo, { nickName, avatarUrl });
+  try { wx.setStorageSync('userInfo', { nickName, avatarUrl }); } catch (e) { /* ignore */ }
+  state.showProfileSetup = false;
 }
 
 function connectGameServer() {
@@ -260,5 +241,8 @@ module.exports = {
   init,
   syncUserData,
   setPieceSkin,
+  saveProfile,
+  AVATAR_PRESETS,
+  randomNickname,
   getState: () => state,
 };

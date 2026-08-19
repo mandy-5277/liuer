@@ -22,5 +22,9 @@ Thumbs.db
 # AI 生成预览图（非源码）
 generated-images/
 
+# 部署产物 / 测试日志
+*.tar.gz
+scripts/e2e_*.txt
+
 # 本地工具数据（规则/figma 缓存，非源码）
 .codebuddy/

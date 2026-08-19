@@ -190,11 +190,28 @@ async function getUserGames(openid, limit = 20, skip = 0) {
   }));
 }
 
-async function getRankList(limit = 50) {
-  const [rows] = await pool.query(
-    'SELECT openid, nickName, avatarUrl, rankScore, rankName FROM users ORDER BY rankScore DESC LIMIT ?',
-    [limit]
-  );
+async function getRankList(limit = 100, sortBy = 'score') {
+  // sortBy='score' 按积分排；'winRate' 按胜率排（同分按积分兜底）
+  let rows;
+  if (sortBy === 'winRate') {
+    const sql = `
+      SELECT openid, nickName, avatarUrl, rankScore, rankName,
+             winCount, loseCount, drawCount,
+             CASE WHEN (winCount + loseCount + drawCount) = 0 THEN 0
+                  ELSE ROUND(winCount * 100.0 / (winCount + loseCount + drawCount), 1)
+             END AS winRate
+        FROM users
+       WHERE (winCount + loseCount + drawCount) >= 50
+       ORDER BY winRate DESC, rankScore DESC
+       LIMIT ?
+    `;
+    [rows] = await pool.query(sql, [Number(limit) || 100]);
+  } else {
+    [rows] = await pool.query(
+      'SELECT openid, nickName, avatarUrl, rankScore, rankName, winCount, loseCount, drawCount FROM users ORDER BY rankScore DESC LIMIT ?',
+      [Number(limit) || 100]
+    );
+  }
   return rows.map((u, i) => ({
     rank: i + 1,
     openid: u.openid,
@@ -202,6 +219,10 @@ async function getRankList(limit = 50) {
     avatarUrl: u.avatarUrl,
     rankScore: u.rankScore,
     rankName: u.rankName,
+    winRate: typeof u.winRate === 'number' ? u.winRate : (function () {
+      const t = (u.winCount || 0) + (u.loseCount || 0) + (u.drawCount || 0);
+      return t > 0 ? Math.round((u.winCount || 0) * 1000 / t) / 10 : 0;
+    })(),
   }));
 }
 
@@ -285,22 +306,30 @@ async function getUserTransactions(openid, limit = 20) {
   }));
 }
 
+/** 生成北京时间（UTC+8）的日期字符串 YYYY-MM-DD，规避服务器/数据库时区差异 */
+function todayCNStr() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000);
+  return d.toISOString().slice(0, 10);
+}
+
 async function checkin(openid, today) {
   const [rows] = await pool.query('SELECT * FROM users WHERE openid = ?', [openid]);
   if (rows.length === 0) return { success: false, reason: 'user_not_found' };
   const u = rows[0];
 
-  // 原子判断：今天已签到则不再记录（使用数据库时区，避免时区字符串比较偏差）。
-  // 精力奖励由调用方（handler）通过 addEnergy 统一发放（含上限控制）。
-  const bonus = 5;
-  const [r] = await pool.query(
-    `UPDATE users SET lastCheckin = CURDATE()
-     WHERE openid = ? AND (lastCheckin IS NULL OR DATE(lastCheckin) <> CURDATE())`,
+  // 用应用层固定 +8 时区判断"今天"，避免数据库 CURDATE() 因服务器时区(UTC)导致跨日误判。
+  const todayStr = todayCNStr();
+  const [[last]] = await pool.query(
+    'SELECT DATE_FORMAT(lastCheckin, "%Y-%m-%d") AS d FROM users WHERE openid = ?',
     [openid]
   );
-  if (r.affectedRows === 0) {
+  if (last && last.d === todayStr) {
     return { success: false, reason: 'already_checked_in', errMsg: '今日已签到，明天再来', energy: u.energy };
   }
+
+  // 精力奖励由调用方（handler）通过 addEnergy 统一发放（含上限控制），这里仅记录签到日期。
+  const bonus = 5;
+  await pool.query('UPDATE users SET lastCheckin = ? WHERE openid = ?', [todayStr, openid]);
   return { success: true, energy: u.energy, bonus };
 }
 
@@ -327,8 +356,9 @@ async function deductEnergy(openid, amount) {
 async function addEnergy(openid, amount) {
   const [rows] = await pool.query('SELECT energy FROM users WHERE openid = ?', [openid]);
   if (rows.length === 0) return { success: false, reason: 'user_not_found' };
-  const max = gameConfig.energyMax || 30;
-  const newEnergy = Math.min(max, rows[0].energy + amount);
+  // 主动获得精力（看广告/分享/签到）可超过上限（energyMax=30），
+  // 仅自然恢复（recoverEnergy）受上限约束。
+  const newEnergy = rows[0].energy + amount;
   await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [newEnergy, openid]);
   const recoverAt = await resetRecoverAt(openid, newEnergy);
   return { success: true, energy: newEnergy, energyRecoverAt: recoverAt };

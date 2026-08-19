@@ -330,7 +330,7 @@ function onDraw(ctx) {
 function drawSetModal(ctx) {
   ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
-  const pw = W * 0.86, ph = 420, px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.86, ph = Math.max(400, Math.round(H * 0.64)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 18 });
   drawText(ctx, '对局设置', W / 2, py + 34, { fontSize: 30,
     color: PALETTE.text, align: 'center', bold: true });
@@ -405,6 +405,7 @@ function drawPlayerCards(ctx) {
   drawPlayerCard(ctx, {
     x: pad, y: oppTop, w: W - pad * 2, h: cardH,
     name: game.opponentInfo.nickName || '对手',
+    avatar: game.opponentInfo.avatarUrl || '',
     rank: game.opponentInfo.rankScore || 0,
     remain: game.opponentRemainText,
     remainNum: game.opponentCatchNum,
@@ -418,6 +419,7 @@ function drawPlayerCards(ctx) {
   drawPlayerCard(ctx, {
     x: pad, y: boardTop + boardSize + 18 + 32, w: W - pad * 2, h: cardH,
     name: game.myInfo.nickName || '我',
+    avatar: game.myInfo.avatarUrl || '',
     rank: game.myInfo.rankScore || 0,
     remain: game.myRemainText,
     remainNum: game.myCatchNum,
@@ -432,7 +434,7 @@ function drawPlayerCard(ctx, o) {
   const cy = o.y + o.h / 2;
 
   // 头像（右下角叠加执子颜色小圆）
-  drawAvatar(ctx, { x: o.x + 30, y: cy, r: 20, label: o.name, ring: o.isTurn });
+  drawAvatar(ctx, { x: o.x + 30, y: cy, r: 20, label: o.name, avatar: o.avatar || '', ring: o.isTurn });
   // 执子颜色小圆（头像右下角），颜色联动当前棋子皮肤
   const skin = ui.PIECE_SKINS[state.pieceSkin] || ui.PIECE_SKINS.classic;
   const pieceC = o.pieceColor === 'black' ? skin.black : skin.white;
@@ -580,7 +582,7 @@ function drawBottomActions(ctx) {
 function drawDrawRequest(ctx) {
   ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
-  const pw = W * 0.8, ph = 220, px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.8, ph = Math.max(200, Math.round(H * 0.34)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
   drawText(ctx, '对方请求求和', W / 2, py + 70, { color: PALETTE.text, fontSize: 30, align: 'center', bold: true });
   drawText(ctx, game.drawRequestName || '', W / 2, py + 110, { color: PALETTE.textDim, fontSize: 22, align: 'center' });
@@ -593,7 +595,7 @@ function drawDrawRequest(ctx) {
 function drawGiveUpConfirm(ctx) {
   ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
-  const pw = W * 0.8, ph = 200, px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.8, ph = Math.max(180, Math.round(H * 0.30)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
   drawText(ctx, '确定认输吗？', W / 2, py + 80, { color: PALETTE.text, fontSize: 30, align: 'center', bold: true });
   rects.confirmGiveUp = drawButton(ctx, { text: '确定', x: px + 30, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
@@ -605,7 +607,7 @@ function drawGiveUpConfirm(ctx) {
 function drawSettle(ctx) {
   ctx.fillStyle = 'rgba(60,47,40,0.6)';
   ctx.fillRect(0, 0, W, H);
-  const pw = W * 0.82, ph = 320, px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.82, ph = Math.max(280, Math.round(H * 0.46)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
 
   const titleMap = { win: '胜利！', lose: '惜败', draw: '平局' };

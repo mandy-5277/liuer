@@ -112,11 +112,28 @@ function drawCard(ctx, opts) {
 }
 
 /**
- * 绘制圆形头像占位（金棕渐变 + 首字母）。
- * opts: { x, y, r, label, ring }
+ * 头像/图片缓存（小游戏 wx.createImage）
+ */
+const avatarCache = {};
+function loadAvatarImage(url) {
+  if (avatarCache[url]) return avatarCache[url];
+  const img = wx.createImage();
+  img.src = url;
+  img.onload = () => { /* 渲染循环每帧重绘，加载完成下一帧自然显示 */ };
+  img.onerror = () => { /* 忽略加载失败 */ };
+  avatarCache[url] = img;
+  return img;
+}
+
+/**
+ * 绘制圆形头像。支持三种来源：
+ *  - avatar 以 "emoji:" 开头 → 绘制 emoji（预设头像）
+ *  - avatar 为 http(s) URL → 绘制网络/上传图片
+ *  - 否则 → 金棕渐变 + 首字母占位
+ * opts: { x, y, r, label, avatar, ring }
  */
 function drawAvatar(ctx, opts) {
-  const { x, y, r, label = '', ring = false } = opts;
+  const { x, y, r, label = '', avatar = '', ring = false } = opts;
   ctx.save();
   if (ring) {
     ctx.beginPath();
@@ -124,19 +141,48 @@ function drawAvatar(ctx, opts) {
     ctx.fillStyle = PALETTE.goldBright;
     ctx.fill();
   }
-  const g = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
-  g.addColorStop(0, PALETTE.goldBright);
-  g.addColorStop(1, PALETTE.gold);
+  // 圆形裁剪
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = g;
-  ctx.fill();
-  if (label) {
-    ctx.fillStyle = PALETTE.textOnGold;
-    ctx.font = `bold ${Math.round(r * 0.9)}px ${FONT_FAMILY}`;
+  ctx.clip();
+
+  if (avatar && avatar.indexOf('emoji:') === 0) {
+    // 预设 emoji 头像：浅色底 + emoji
+    ctx.fillStyle = '#F5EEDC';
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    const emoji = avatar.slice(6);
+    ctx.font = `${Math.round(r * 1.4)}px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label.slice(0, 1), x, y + 1);
+    ctx.fillText(emoji, x, y + 1);
+  } else if (avatar && /^https?:\/\//.test(avatar)) {
+    const img = loadAvatarImage(avatar);
+    if (img && img.width > 0) {
+      const s = Math.max(img.width, img.height);
+      const sx = (img.width - s) / 2;
+      const sy = (img.height - s) / 2;
+      ctx.drawImage(img, sx, sy, s, s, x - r, y - r, r * 2, r * 2);
+    } else {
+      // 图片未加载完成：先画占位
+      const g = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+      g.addColorStop(0, PALETTE.goldBright);
+      g.addColorStop(1, PALETTE.gold);
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  } else {
+    const g = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+    g.addColorStop(0, PALETTE.goldBright);
+    g.addColorStop(1, PALETTE.gold);
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    if (label) {
+      ctx.fillStyle = PALETTE.textOnGold;
+      ctx.font = `bold ${Math.round(r * 0.9)}px ${FONT_FAMILY}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label.slice(0, 1), x, y + 1);
+    }
   }
   ctx.restore();
 }
@@ -193,9 +239,10 @@ function drawText(ctx, text, x, y, opts = {}) {
     align = 'left',
     baseline = 'alphabetic',
     bold = false,
+    family = FONT_FAMILY,
   } = opts;
   ctx.fillStyle = color;
-  ctx.font = `${bold ? 'bold ' : ''}${fontSize}px ${FONT_FAMILY}`;
+  ctx.font = `${bold ? 'bold ' : ''}${fontSize}px ${family}`;
   ctx.textAlign = align;
   ctx.textBaseline = baseline;
   ctx.fillText(text, x, y);

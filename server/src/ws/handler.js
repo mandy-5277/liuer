@@ -108,6 +108,9 @@ async function dispatch(ws, msg) {
       case 'update_settings':
         await handleUpdateSettings(ws, data);
         break;
+      case 'update_profile':
+        await handleUpdateProfile(ws, data);
+        break;
 
       // ========== 排行榜 ==========
       case 'get_rank_list':
@@ -374,28 +377,73 @@ async function handleUpdateSettings(ws, data) {
   }
 }
 
+// 更新昵称/头像（"完善资料"浮层提交）
+async function handleUpdateProfile(ws, data) {
+  const openid = getOpenid(ws);
+  if (!openid) return;
+
+  const updates = {};
+  if (typeof data.nickName === 'string' && data.nickName.trim()) {
+    updates.nickName = data.nickName.trim().slice(0, 30);
+  }
+  if (typeof data.avatarUrl === 'string' && data.avatarUrl.trim()) {
+    updates.avatarUrl = data.avatarUrl.trim().slice(0, 512);
+  }
+  if (!Object.keys(updates).length) {
+    return sendToPlayer(openid, { cmd: 'error', data: { errMsg: '没有可更新的资料' } });
+  }
+
+  try {
+    await userService.updateUser(openid, updates);
+    const user = await userService.findByOpenid(openid);
+    sendToPlayer(openid, {
+      cmd: 'profile_updated',
+      data: {
+        openid,
+        nickName: user ? user.nickName : updates.nickName,
+        avatarUrl: user ? user.avatarUrl : updates.avatarUrl,
+      },
+    });
+  } catch (err) {
+    console.error('[WS] 更新资料失败:', err);
+    sendToPlayer(openid, { cmd: 'error', data: { errMsg: '资料保存失败' } });
+  }
+}
+
 // ========== 排行榜 ==========
 
 async function handleGetRankList(ws, data) {
   const openid = getOpenid(ws);
   if (!openid) return;
 
-  const limit = data.limit || 50;
-  const rankList = await userService.getRankList(limit);
+  const sortBy = data.type === 'winRate' ? 'winRate' : 'score';
+  const limit = data.limit || 100;
+  const rankList = await userService.getRankList(limit, sortBy);
 
-  // 查找自己的排名
+  // 计算自己的排名（按相同规则查询更大范围后定位）
+  let myRank = -1;
+  let myWinRate = 0;
   const user = await userService.findByOpenid(openid);
-  const myRank = user
-    ? rankList.findIndex(r => r._openid === openid) + 1
-    : -1;
+  if (user) {
+    if (sortBy === 'winRate') {
+      const total = (user.winCount || 0) + (user.loseCount || 0) + (user.drawCount || 0);
+      myWinRate = total > 0 ? Math.round((user.winCount || 0) * 1000 / total) / 10 : 0;
+    }
+    // 用较大 limit 查询真实名次（避免仅在 rankList 内查找漏判）
+    const fullList = await userService.getRankList(500, sortBy);
+    myRank = fullList.findIndex(r => r.openid === openid) + 1;
+  }
 
   sendToPlayer(openid, {
     cmd: 'rank_list',
     data: {
       rankList,
       myRank,
+      myWinRate,
       myRankScore: user?.rankScore || 0,
       myRankName: user?.rankName || '初级小六',
+      myTotalGames: user ? ((user.winCount || 0) + (user.lossCount || 0) + (user.drawCount || 0)) : 0,
+      sortBy,
     },
   });
 }
