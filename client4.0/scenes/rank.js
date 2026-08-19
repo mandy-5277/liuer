@@ -125,21 +125,21 @@ function drawList(ctx, listTop, listBottom) {
     if (y + rowH < listTop || y > listBottom) return; // 裁剪外不绘制
     drawCard(ctx, { x: 16, y, w: W - 32, h: rowH - 8, radius: 10 });
 
-    // # 名次
-    drawText(ctx, '#' + it.rank, 32, y + rowH / 2 - 4, {
-      color: i < 3 ? PALETTE.gold : PALETTE.textDim, fontSize: 18, bold: true, baseline: 'middle',
+    // 名次（去掉 #，右对齐窄列，避免溢出卡片左边缘）
+    drawText(ctx, '' + it.rank, 48, y + rowH / 2 - 4, {
+      color: i < 3 ? PALETTE.gold : PALETTE.textDim, fontSize: 16, bold: true, baseline: 'middle', align: 'right',
     });
     // 头像
     drawAvatar(ctx, {
-      x: 68, y: y + (rowH - 8) / 2, r: 16,
+      x: 78, y: y + (rowH - 8) / 2, r: 16,
       label: (it.nickName || '').slice(0, 1), avatar: it.avatarUrl || '',
     });
     // 昵称
-    drawText(ctx, (it.nickName || '匿名玩家'), 92, y + rowH / 2 - 10, {
+    drawText(ctx, (it.nickName || '匿名玩家'), 100, y + rowH / 2 - 10, {
       color: PALETTE.text, fontSize: 17, bold: true, baseline: 'middle',
     });
     // 段位
-    drawText(ctx, it.rankName || '', 92, y + rowH / 2 + 12, {
+    drawText(ctx, it.rankName || '', 100, y + rowH / 2 + 12, {
       color: PALETTE.textDim, fontSize: 13, baseline: 'middle',
     });
     // 积分 / 胜率（内缩到卡片内）
@@ -166,27 +166,27 @@ function drawMyCard(ctx, cardY) {
   ctx.strokeStyle = PALETTE.gold;
   ctx.stroke();
 
-  // 固定显示：自己的排名（#名次 / 未上榜）
+  // 固定显示：自己的排名（名次 / 未上榜）
   if (myInfo.outOfTop) {
-    drawText(ctx, '#--', 32, cardY + cardH / 2 + 1, {
-      color: PALETTE.textDim, fontSize: 18, bold: true, baseline: 'middle',
+    drawText(ctx, '--', 48, cardY + cardH / 2 + 1, {
+      color: PALETTE.textDim, fontSize: 16, bold: true, baseline: 'middle', align: 'right',
     });
   } else {
-    drawText(ctx, '#' + myInfo.rank, 32, cardY + cardH / 2 + 1, {
-      color: PALETTE.gold, fontSize: 18, bold: true, baseline: 'middle',
+    drawText(ctx, '' + myInfo.rank, 48, cardY + cardH / 2 + 1, {
+      color: PALETTE.gold, fontSize: 16, bold: true, baseline: 'middle', align: 'right',
     });
   }
   // 头像
   drawAvatar(ctx, {
-    x: 68, y: cardY + cardH / 2, r: 18,
+    x: 78, y: cardY + cardH / 2, r: 18,
     label: (myInfo.nickName || '我').slice(0, 1), avatar: myInfo.avatarUrl || '',
     ring: true,
   });
   // 昵称 + 段位
-  drawText(ctx, myInfo.nickName || '我', 94, cardY + cardH / 2 - 10, {
+  drawText(ctx, myInfo.nickName || '我', 100, cardY + cardH / 2 - 10, {
     color: PALETTE.text, fontSize: 18, bold: true, baseline: 'middle',
   });
-  drawText(ctx, myInfo.rankName || '', 94, cardY + cardH / 2 + 12, {
+  drawText(ctx, myInfo.rankName || '', 100, cardY + cardH / 2 + 12, {
     color: PALETTE.textDim, fontSize: 13, baseline: 'middle',
   });
   // "未上榜"标记 / 数值

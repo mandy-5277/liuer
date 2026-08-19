@@ -47,6 +47,7 @@ module.exports = {
     maxAdPerDay: 3,        // 每日广告次数上限（看广告恢复精力）
     adReward: 10,          // 看广告恢复精力点数
     shareReward: 5,        // 分享恢复精力点数
+    shareRewardLimit: 5,   // 每日分享次数上限
     signInReward: 5,       // 每日签到恢复精力点数
 
     // 段位体系（积分区间 -> 段位名称）

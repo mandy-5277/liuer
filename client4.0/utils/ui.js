@@ -327,14 +327,22 @@ function drawPiece(ctx, opts) {
   ctx.fillStyle = 'rgba(60,47,40,0.18)';
   ctx.fill();
 
-  // 棋子本体
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = colors.fill;
-  ctx.fill();
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = colors.stroke;
-  ctx.stroke();
+  // 棋子本体（按皮肤决定形状）
+  const isTwigSkin = skinKey === 'twig';
+  const pieceShape = isTwigSkin ? (color === 'black' ? 'twig' : 'stone') : 'round';
+  if (pieceShape === 'twig') {
+    drawTwigShape(ctx, x, y, r, colors);
+  } else if (pieceShape === 'stone') {
+    drawStoneShape(ctx, x, y, r, colors);
+  } else {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = colors.fill;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = colors.stroke;
+    ctx.stroke();
+  }
 
   // 走子选中：绿色外圈
   if (selected) {
@@ -353,6 +361,92 @@ function drawPiece(ctx, opts) {
     ctx.textBaseline = 'middle';
     ctx.fillText('🔒', x, y);
   }
+}
+
+/** 树枝形状：旋转椭圆主体 + 节疤 + 高光，模拟一截树枝 */
+function drawTwigShape(ctx, cx, cy, r, colors) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-Math.PI / 180 * 28); // 倾斜 -28°
+  // 主体椭圆（长 2.1r × 短 0.85r）
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.05, r * 0.42, 0, 0, Math.PI * 2);
+  ctx.fillStyle = colors.fill;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = colors.stroke;
+  ctx.stroke();
+  // 小分叉（短枝干，更像真树枝）：从主体中上部斜向上伸出
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(r * 0.15, -r * 0.18);
+  ctx.lineTo(r * 0.55, -r * 0.55);
+  ctx.lineTo(r * 0.72, -r * 0.4);
+  ctx.quadraticCurveTo(r * 0.5, -r * 0.1, r * 0.3, -r * 0.02);
+  ctx.closePath();
+  ctx.fillStyle = colors.fill;
+  ctx.fill();
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = colors.stroke;
+  ctx.stroke();
+  ctx.restore();
+  // 节疤暗点（两个深棕小椭圆）
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.35, 0, r * 0.18, r * 0.07, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(r * 0.45, -r * 0.05, r * 0.15, r * 0.06, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // 高光线
+  ctx.beginPath();
+  ctx.ellipse(r * 0.2, -r * 0.22, r * 0.65, r * 0.06, -0.2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.20)';
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 石子形状：不规则圆润椭圆 + 月牙高光 + 暗部，模拟鹅卵石 */
+function drawStoneShape(ctx, cx, cy, r, colors) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  // 主石身：多段贝塞尔绘制轻微不规则边（鹅卵石感）
+  ctx.beginPath();
+  const segments = 10;
+  const jitter = [1.00, 0.96, 1.02, 0.94, 1.00, 0.97, 1.03, 0.95, 1.00, 0.98];
+  let prevX = 0, prevY = 0;
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    const j = jitter[i % segments];
+    const px = Math.cos(a) * r * j;
+    const py = Math.sin(a) * r * 0.9 * j;
+    if (i === 0) {
+      ctx.moveTo(px, py);
+      prevX = px; prevY = py;
+    } else {
+      const mx = (prevX + px) / 2;
+      const my = (prevY + py) / 2;
+      ctx.quadraticCurveTo(prevX, prevY, mx, my);
+      prevX = px; prevY = py;
+    }
+  }
+  ctx.closePath();
+  ctx.fillStyle = colors.fill;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = colors.stroke;
+  ctx.stroke();
+  // 月牙高光（左上）
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.3, -r * 0.4, r * 0.45, r * 0.18, -0.4, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fill();
+  // 右下阴影，增强立体
+  ctx.beginPath();
+  ctx.ellipse(r * 0.35, r * 0.45, r * 0.55, r * 0.22, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fill();
+  ctx.restore();
 }
 
 module.exports = {

@@ -50,12 +50,21 @@ function onEnter() {
   }
 
   // 分享卡片带房间号 → 启动后自动进房
-  if (state.pendingRoom) {
-    const code = state.pendingRoom;
-    state.pendingRoom = '';
-    wsManager.send('join_room', { roomId: code });
-    overlay = 'matching';
+  handlePendingRoom();
+}
+
+function handlePendingRoom() {
+  if (!state.pendingRoom) return;
+  const code = state.pendingRoom;
+  state.pendingRoom = '';
+  if (!wsManager.isConnected) {
+    // 连接尚未就绪时延后重试（登录/WS 连接异步）
+    setTimeout(handlePendingRoom, 300);
+    state.pendingRoom = code;
+    return;
   }
+  wsManager.send('join_room', { roomId: code });
+  overlay = 'matching';
 }
 
 function onLeave() {
@@ -110,7 +119,9 @@ function registerWs() {
     if (data.rankName) state.rankName = data.rankName;
   });
   wsManager.on('sign_in_result', (data) => {
-    wx.showToast({ title: '签到成功 +' + ((data && data.energy) ? 5 : 0) + '精力', icon: 'success' });
+    if (data && data.energy !== undefined) state.energy.current = data.energy;
+    const reward = data && data.bonus ? data.bonus : ((new Date().getDay() % 6 === 0) ? 10 : 5);
+    wx.showToast({ title: '签到成功 +' + reward + '精力', icon: 'success' });
   });
   wsManager.on('ad_reward_result', (data) => {
     wx.showToast({ title: '精力 +' + ((data && data.reward) || 10), icon: 'success' });
@@ -149,6 +160,9 @@ function onDraw(ctx) {
     profileAvatarIndex = 0;
     overlay = 'profileSetup';
   }
+
+  // 热启动：分享卡片带房间号且当前在首页时，自动加入房间
+  handlePendingRoom();
 
   drawBackground(ctx);
   drawTopBar(ctx);
@@ -447,7 +461,17 @@ function handleRoomTouch(x, y) {
       return;
     }
     if (hit(rects.copyRoom, x, y)) {
-      wx.setClipboardData({ data: roomCode, success: () => wx.showToast({ title: '房间号已复制', icon: 'success' }) });
+      wx.showToast({ title: '复制中...', icon: 'loading' });
+      wx.setClipboardData({
+        data: roomCode,
+        success: () => {
+          wx.showToast({ title: '房间号已复制', icon: 'success' });
+        },
+        fail: (err) => {
+          console.error('[Home] 复制房间号失败:', err);
+          wx.showModal({ title: '复制失败', content: '请手动复制房间号：' + roomCode, showCancel: false });
+        },
+      });
     } else if (hit(rects.shareRoom, x, y)) {
       shareRoom();
     }

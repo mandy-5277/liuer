@@ -22,9 +22,18 @@ const WS_BASE = USE_WSS
   ? 'wss://' + PROD_DOMAIN + '/ws'   // Nginx 反代路径（见服务器 /etc/nginx/sites-available/game.conf）
   : 'ws://47.93.96.20:3000';
 
+// ========== 广告 / 分享恢复精力配置 ==========
+// 激励视频广告位 ID：在微信公众平台「流量主→广告位管理」申请后填入，未配置时走模拟播放
+const AD_UNIT_ID = ''; // TODO: 填写你的激励视频广告位 ID
+const AD_REWARD_DAILY = 3;    // 看视频每日次数上限
+const SHARE_REWARD_DAILY = 5; // 分享每日次数上限
+
 module.exports = {
   SERVER_BASE,   // HTTP 接口基址（含 /api/auth/wx-login）
   WS_BASE,       // WebSocket 基址
   USE_WSS,
   PROD_DOMAIN,
+  AD_UNIT_ID,
+  AD_REWARD_DAILY,
+  SHARE_REWARD_DAILY,
 };

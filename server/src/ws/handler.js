@@ -492,12 +492,22 @@ async function handleAdReward(ws) {
   const openid = getOpenid(ws);
   if (!openid) return;
 
-  // TODO: 验证广告回调（微信激励视频广告）
-  const result = await userService.addEnergy(openid, 10);
+  const maxAd = gameConfig.maxAdPerDay || 3;
+  // 跨天重置每日计数
+  const reset = await userService.ensureDailyReset(openid);
+  const cur = reset && reset.success ? (reset.adCount || 0) : 0;
+  if (cur >= maxAd) {
+    sendToPlayer(openid, { cmd: 'error', data: { errMsg: '今日看视频次数已用完' } });
+    return;
+  }
+
+  const reward = gameConfig.adReward || 10;
+  const result = await userService.addEnergy(openid, reward);
   if (result.success) {
+    await userService.incrementAdCount(openid);
     sendToPlayer(openid, {
       cmd: 'ad_reward_result',
-      data: { energy: result.energy, reward: 10 },
+      data: { energy: result.energy, reward },
     });
     sendToPlayer(openid, {
       cmd: 'resource_update',
@@ -510,12 +520,21 @@ async function handleShareReward(ws) {
   const openid = getOpenid(ws);
   if (!openid) return;
 
-  // 分享奖励精力（不再发放铜板）
-  const result = await userService.addEnergy(openid, 5);
+  const maxShare = gameConfig.shareRewardLimit || 5;
+  const reset = await userService.ensureDailyReset(openid);
+  const cur = reset && reset.success ? (reset.shareCount || 0) : 0;
+  if (cur >= maxShare) {
+    sendToPlayer(openid, { cmd: 'error', data: { errMsg: '今日分享次数已用完' } });
+    return;
+  }
+
+  const reward = gameConfig.shareReward || 5;
+  const result = await userService.addEnergy(openid, reward);
   if (result.success) {
+    await userService.incrementShareCount(openid);
     sendToPlayer(openid, {
       cmd: 'share_reward_result',
-      data: { energy: result.energy, reward: 5 },
+      data: { energy: result.energy, reward },
     });
     sendToPlayer(openid, {
       cmd: 'resource_update',

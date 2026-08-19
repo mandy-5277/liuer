@@ -21,14 +21,39 @@ const K = {
 
 // ============ 用户 ============
 
-// 启动时确保 users 表存在 energyRecoverAt 字段（精力懒恢复时间戳，毫秒）
+// 启动时确保 users 表存在精力/奖励次数字段（懒迁移，字段已存在会报错忽略）
 async function ensureEnergySchema() {
-  try {
-    await pool.query('ALTER TABLE users ADD COLUMN energyRecoverAt BIGINT NOT NULL DEFAULT 0');
-    console.log('[Data] users.energyRecoverAt 字段已创建');
-  } catch (e) {
-    // 字段已存在会报错，忽略
+  const cols = [
+    ['energyRecoverAt', 'BIGINT NOT NULL DEFAULT 0'],
+    ['dailyAdCount', 'INT NOT NULL DEFAULT 0'],      // 每日看广告次数
+    ['dailyShareCount', 'INT NOT NULL DEFAULT 0'],   // 每日分享次数
+  ];
+  for (const [col, def] of cols) {
+    try {
+      await pool.query(`ALTER TABLE users ADD COLUMN ${col} ${def}`);
+      console.log(`[Data] users.${col} 字段已创建`);
+    } catch (e) { /* 字段已存在会报错，忽略 */ }
   }
+}
+
+/**
+ * 每日奖励次数读取 + 跨天自动重置。
+ * 若 lastDailyReset 不是今天，则清零 dailyAdCount / dailyShareCount / dailyCopper。
+ */
+async function ensureDailyReset(openid) {
+  const [rows] = await pool.query('SELECT lastDailyReset, dailyAdCount, dailyShareCount, dailyCopper FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+  const u = rows[0];
+  const today = todayCNStr();
+  if (u.lastDailyReset === today) {
+    return { success: true, adCount: u.dailyAdCount || 0, shareCount: u.dailyShareCount || 0 };
+  }
+  // 跨天：重置次数
+  await pool.query(
+    'UPDATE users SET lastDailyReset = ?, dailyAdCount = 0, dailyShareCount = 0, dailyCopper = 0 WHERE openid = ?',
+    [today, openid]
+  );
+  return { success: true, adCount: 0, shareCount: 0 };
 }
 
 /**
@@ -327,8 +352,10 @@ async function checkin(openid, today) {
     return { success: false, reason: 'already_checked_in', errMsg: '今日已签到，明天再来', energy: u.energy };
   }
 
-  // 精力奖励由调用方（handler）通过 addEnergy 统一发放（含上限控制），这里仅记录签到日期。
-  const bonus = 5;
+  // 精力奖励：工作日 +5，周六/日 +10（与客户端展示一致）
+  const nowCN = new Date(Date.now() + 8 * 3600 * 1000);
+  const dayOfWeek = nowCN.getDay(); // 0=周日, 6=周六
+  const bonus = (dayOfWeek === 0 || dayOfWeek === 6) ? 10 : 5;
   await pool.query('UPDATE users SET lastCheckin = ? WHERE openid = ?', [todayStr, openid]);
   return { success: true, energy: u.energy, bonus };
 }
@@ -362,6 +389,24 @@ async function addEnergy(openid, amount) {
   await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [newEnergy, openid]);
   const recoverAt = await resetRecoverAt(openid, newEnergy);
   return { success: true, energy: newEnergy, energyRecoverAt: recoverAt };
+}
+
+/** 每日看广告计数 +1，返回新计数（需先 ensureDailyReset） */
+async function incrementAdCount(openid) {
+  const [rows] = await pool.query('SELECT dailyAdCount FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+  const next = (rows[0].dailyAdCount || 0) + 1;
+  await pool.query('UPDATE users SET dailyAdCount = ? WHERE openid = ?', [next, openid]);
+  return { success: true, count: next };
+}
+
+/** 每日分享计数 +1，返回新计数（需先 ensureDailyReset） */
+async function incrementShareCount(openid) {
+  const [rows] = await pool.query('SELECT dailyShareCount FROM users WHERE openid = ?', [openid]);
+  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
+  const next = (rows[0].dailyShareCount || 0) + 1;
+  await pool.query('UPDATE users SET dailyShareCount = ? WHERE openid = ?', [next, openid]);
+  return { success: true, count: next };
 }
 
 async function buyEnergy_REMOVED(openid, energyAmount, copperCost) {
@@ -536,6 +581,9 @@ module.exports = {
   getRankList,
   ensureEnergySchema,
   recoverEnergy,
+  ensureDailyReset,
+  incrementAdCount,
+  incrementShareCount,
   // 对局
   createGameRecord,
   updateGameRecord,
@@ -581,6 +629,9 @@ module.exports = {
     deductEnergy,
     checkin,
     updateSettings,
+    ensureDailyReset,
+    incrementAdCount,
+    incrementShareCount,
   },
   gameRecordService: {
     createGameRecord,

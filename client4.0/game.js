@@ -31,12 +31,20 @@ let canvas = null;
 
 function main() {
   // 0. 读取启动参数（分享卡片带 room 可自动进房）
-  try {
-    const opts = (typeof wx.getLaunchOptionsSync === 'function') ? wx.getLaunchOptionsSync() : {};
+  function readRoomFromLaunchOptions(opts) {
     if (opts && opts.query && opts.query.room) {
       state.pendingRoom = ('' + opts.query.room).toUpperCase().trim();
+      console.log('[Game] 分享进入，pendingRoom=', state.pendingRoom);
     }
+  }
+  try {
+    readRoomFromLaunchOptions((typeof wx.getLaunchOptionsSync === 'function') ? wx.getLaunchOptionsSync() : {});
   } catch (e) { /* ignore */ }
+
+  // 热启动：好友从分享卡片点击进入已运行的小程序
+  if (typeof wx.onShow === 'function') {
+    wx.onShow((res) => readRoomFromLaunchOptions(res));
+  }
 
   // 开启分享给好友（小游戏）
   if (typeof wx.showShareMenu === 'function') {

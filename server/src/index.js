@@ -31,6 +31,13 @@ const redis = require('./db/redis');
 const app = express();
 app.use(express.json());
 
+// 静态页面（隐私政策 / 服务协议，供小游戏备案链接访问）
+// 访问路径：https://liuer.xin/privacy.html 和 https://liuer.xin/terms.html
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+if (fs.existsSync(PUBLIC_DIR)) {
+  app.use(express.static(PUBLIC_DIR, { maxAge: '1h' }));
+}
+
 // 健康检查
 app.get('/health', (req, res) => {
   res.json({ ok: true, uptime: process.uptime(), time: Date.now() });

@@ -25,19 +25,26 @@ const game = {
   moveCaptureMode: false, boardPieces: [], legalCells: [], selectedPieceIndex: -1,
   skipAvailable: false, drawPaused: false, showSettle: false, settleData: {},
   myResult: '', scoreChange: 0, drawRequestBy: '', drawRequestName: '',
-  showDrawRequest: false, showGiveUpConfirm: false, showSettings: false, boardFlipped: false,
+  showDrawRequest: false, showRequestDraw: false, showGiveUpConfirm: false, showSettings: false, boardFlipped: false,
   timerText: '00:00', timeLow: false, timerProgress: 100,
 };
 
 let boardGeo = { ox: 0, oy: 0, step: 0, size: 0 };
+// 本地倒计时 tick：用本地时间递减，保证秒数字每秒变化（不等服务端推）
+let lastTickTs = 0;
 
-// 各阶段标识底色（设计稿：蓝/红/绿/金）
+// 各阶段配色（下子蓝/揪子红/走子绿）：每项含主色 main、深色 dark（渐变/阴影用）
 const PHASE_COLORS = {
-  place: PALETTE.blue,
-  capture: PALETTE.red,
-  move: PALETTE.green,
-  settled: PALETTE.gold,
+  place:   { main: '#3B82C4', dark: '#2A5F96' },  // 下子·蓝（高级靛蓝）
+  capture: { main: '#D5484A', dark: '#A9383A' },  // 揪子·红（朱红）
+  move:    { main: '#3FA768', dark: '#2C7D4E' },  // 走子·绿（青竹绿）
+  settled: { main: PALETTE.gold, dark: '#6B5210' },
 };
+
+/** 获取当前阶段的配色对象 */
+function phaseColor() {
+  return PHASE_COLORS[game.phase] || PHASE_COLORS.settled;
+}
 
 function calcTimerProgress(remainingTime) {
   const total = game.timeTotal || 15;
@@ -77,7 +84,7 @@ function onEnter(payload) {
     timerProgress: calcTimerProgress(remainingTime),
     catchNums: { black: 0, white: 0 }, board: [], boardPieces: [],
     legalCells: [], selectedPieceIndex: -1, skipAvailable: false,
-    showSettle: false, drawPaused: false, showDrawRequest: false, showGiveUpConfirm: false, showSettings: false,
+    showSettle: false, drawPaused: false, showDrawRequest: false, showRequestDraw: false, showGiveUpConfirm: false, showSettings: false,
   });
 
   updateBoardPieces(gameData.board || []);
@@ -311,6 +318,18 @@ function onDraw(ctx) {
   W = ctx.canvas.width;
   H = ctx.canvas.height;
 
+  // 本地倒计时自减：保证环形进度和秒数字每秒实时变化
+  const nowTs = Date.now();
+  if (lastTickTs > 0) {
+    const dt = (nowTs - lastTickTs) / 1000;
+    if (dt > 0 && game.remainingTime > 0) {
+      game.remainingTime = Math.max(0, game.remainingTime - dt);
+      game.timeLow = game.remainingTime > 0 && game.remainingTime <= 10;
+      game.timerProgress = calcTimerProgress(game.remainingTime);
+    }
+  }
+  lastTickTs = nowTs;
+
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, PALETTE.bgGradientTop);
   g.addColorStop(1, PALETTE.bgGradientBottom);
@@ -321,6 +340,7 @@ function onDraw(ctx) {
   drawBottomActions(ctx);
 
   if (game.showDrawRequest) drawDrawRequest(ctx);
+  if (game.showRequestDraw) drawRequestDrawConfirm(ctx);
   if (game.showGiveUpConfirm) drawGiveUpConfirm(ctx);
   if (game.showSettings) drawSetModal(ctx);
   if (game.showSettle) drawSettle(ctx);
@@ -384,20 +404,21 @@ function rankNameFromScore(score) {
 // 布局（参照 figma 对局页）：对手卡在棋盘上方、己方卡在棋盘下方，整体垂直居中。
 function drawPlayerCards(ctx) {
   const pad = 14;
-  const cardH = 56;
+  const cardH = 66;      // 姓名板加高，更有质感
+  const cardGap = 26;    // 姓名板与棋盘之间的间隔
   const sbh = state.statusBarHeight;
 
   // 阶段标签
   drawStagePill(ctx);
 
-  // 棋盘尺寸：受限并留足间隔，避免超出屏幕/与姓名板重叠
-  const boardSize = Math.max(150, Math.min(W - 108, 235, (H - 240) * 0.5));
+  // 棋盘尺寸：更大（参考 figma 走子阶段棋盘 250px 外层卡），但受屏高限制
+  const boardSize = Math.max(160, Math.min(W - 92, 258, (H - 270) * 0.52));
 
   // 垂直居中的可用区间：阶段标签之下 → 底部操作区(含跳过按钮)之上
-  // 注：drawBoard 的棋盘外卡自带 16px 边距，坐标计算需为它留空间
+  // 注：drawBoard 的棋盘外卡自带 pad*2 边距，坐标计算需为它留空间
   const availTop = sbh + 48;
   const availBottom = H - 88 - 48 - 56; // 底部操作区 + 跳过按钮预留
-  const totalH = cardH + 18 + (boardSize + 32) + 18 + cardH; // 含棋盘卡16*2边距
+  const totalH = cardH + cardGap + (boardSize + 36) + cardGap + cardH; // 含棋盘外卡18*2边距
   let startTop = availTop + (availBottom - availTop - totalH) / 2;
   startTop = Math.max(startTop, availTop);
 
@@ -413,11 +434,11 @@ function drawPlayerCards(ctx) {
     pieceColor: game.myColor === 1 ? 'white' : 'black',
   });
 
-  const boardTop = oppTop + cardH + 18; // 18px 间隔，避开棋盘外卡 16px 边距
+  const boardTop = oppTop + cardH + cardGap; // 加大的间隔
   drawBoard(ctx, boardTop, boardSize);
 
   drawPlayerCard(ctx, {
-    x: pad, y: boardTop + boardSize + 18 + 32, w: W - pad * 2, h: cardH,
+    x: pad, y: boardTop + boardSize + cardGap + 18, w: W - pad * 2, h: cardH,
     name: game.myInfo.nickName || '我',
     avatar: game.myInfo.avatarUrl || '',
     rank: game.myInfo.rankScore || 0,
@@ -429,74 +450,142 @@ function drawPlayerCards(ctx) {
 }
 
 function drawPlayerCard(ctx, o) {
+  // 当前操作方：阶段色加粗边框 + 明显底色（更强的立体区分）
+  const isActive = o.isTurn;
+  const pc = phaseColor();
+  const activeColor = pc.main;
+  const borderColor = isActive ? activeColor : PALETTE.panelBorder;
+  const borderWidth = isActive ? 3 : 1.5;
+  if (isActive) {
+    // 更明显的底色 + 顶部渐变（阶段色淡化）
+    roundRect(ctx, o.x, o.y, o.w, o.h, 14);
+    const bg = ctx.createLinearGradient(0, o.y, 0, o.y + o.h);
+    bg.addColorStop(0, 'rgba(255,255,255,0)');
+    bg.addColorStop(1, hexToRgba(activeColor, 0.16));
+    ctx.fillStyle = bg;
+    ctx.fill();
+    // 左侧阶段色竖条（强调当前操作方）
+    roundRect(ctx, o.x, o.y + 10, 4, o.h - 20, 2);
+    ctx.fillStyle = activeColor;
+    ctx.fill();
+  }
   drawCard(ctx, { x: o.x, y: o.y, w: o.w, h: o.h, radius: 14,
-    border: o.isTurn ? PALETTE.gold : PALETTE.panelBorder });
+    border: borderColor, borderWidth: borderWidth });
   const cy = o.y + o.h / 2;
 
-  // 头像（右下角叠加执子颜色小圆）
-  drawAvatar(ctx, { x: o.x + 30, y: cy, r: 20, label: o.name, avatar: o.avatar || '', ring: o.isTurn });
-  // 执子颜色小圆（头像右下角），颜色联动当前棋子皮肤
-  const skin = ui.PIECE_SKINS[state.pieceSkin] || ui.PIECE_SKINS.classic;
-  const pieceC = o.pieceColor === 'black' ? skin.black : skin.white;
-  const markX = o.x + 48, markY = cy + 16, markR = 9;
-  ctx.beginPath();
-  ctx.arc(markX, markY, markR, 0, Math.PI * 2);
-  ctx.fillStyle = pieceC.fill;
-  ctx.fill();
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = pieceC.stroke;
-  ctx.stroke();
+  // 头像
+  drawAvatar(ctx, { x: o.x + 32, y: cy, r: 22, label: o.name, avatar: o.avatar || '', ring: isActive });
+  // 右下角执子标识：用当前皮肤的真实形状绘制（树枝/石子/圆），皮肤联动
+  ui.drawPiece(ctx, {
+    x: o.x + 53, y: cy + 18, r: 9,
+    color: o.pieceColor, skinKey: state.pieceSkin,
+  });
 
-  // 名字 + 段位
-  drawText(ctx, o.name, o.x + 62, cy - 9, { color: PALETTE.text, fontSize: 18, bold: true });
-  drawText(ctx, '段位 ' + rankNameFromScore(o.rank), o.x + 62, cy + 14, { color: PALETTE.textDim, fontSize: 14 });
+  // 名字 + 段位（去掉"段位"前缀，改为"段位名 · 积分"）
+  drawText(ctx, o.name, o.x + 64, cy - 9, { color: PALETTE.text, fontSize: 19, bold: true });
+  drawText(ctx, rankNameFromScore(o.rank) + ' · ' + (o.rank || 0), o.x + 64, cy + 14, {
+    color: PALETTE.textDim, fontSize: 14,
+  });
 
-  // 右侧倒计时环（当前回合方显示剩余秒数并高亮，非回合方置灰）
-  const cdR = 13;
-  const cdX = o.x + o.w - 24;
+  // 右侧倒计时环（当前回合方用阶段色 + 数字，非回合方置灰）
+  const cdR = 14;
+  const cdX = o.x + o.w - 30;
   const cdY = cy;
-  const cdColor = o.isTurn ? (game.timeLow ? PALETTE.red : PHASE_COLORS[game.phase] || PALETTE.gold) : PALETTE.panelBorder;
+  const cdColor = o.isTurn ? (game.timeLow ? PALETTE.red : activeColor) : PALETTE.panelBorder;
+  const cdPct = o.isTurn ? Math.max(0, Math.min(1, (game.remainingTime || 0) / (game.timeTotal || 15))) : 0;
+  // 底层轨道
   ctx.beginPath();
   ctx.arc(cdX, cdY, cdR, 0, Math.PI * 2);
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = cdColor;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = o.isTurn ? 'rgba(0,0,0,0.08)' : PALETTE.panelBorder;
   ctx.stroke();
+  // 进度弧（阶段色）
+  if (o.isTurn && cdPct > 0) {
+    ctx.beginPath();
+    ctx.arc(cdX, cdY, cdR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * cdPct, false);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = cdColor;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+  // 圆内数字（阶段色）
   const cdText = o.isTurn ? String(Math.ceil(game.remainingTime || 0)) : '--';
   drawText(ctx, cdText, cdX, cdY + 1, { color: cdColor, fontSize: 13, align: 'center', baseline: 'middle', bold: o.isTurn });
-  drawText(ctx, '秒', cdX, cdY + cdR + 12, { color: PALETTE.textDim, fontSize: 9, align: 'center', baseline: 'middle' });
+  // "秒"字移到圆圈右边，但缩进卡内避免溢出
+  const cdTextW = ctx.measureText(cdText).width;
+  const secX = cdX + cdR + 6;
+  const rightPad = 8;
+  if (secX + 14 < o.x + o.w - rightPad) {
+    drawText(ctx, '秒', secX, cdY, { color: PALETTE.textDim, fontSize: 11, align: 'left', baseline: 'middle' });
+  }
 
   // 右侧：棋子 XX/18 + 可揪/剩余
-  const badgeW = 60;
-  const badgeX = o.x + o.w - 24 - cdR * 2 - 16 - badgeW;
-  roundRect(ctx, badgeX, cy - 22, badgeW, 20, 10);
-  ctx.fillStyle = o.isTurn ? 'rgba(139,105,20,0.10)' : '#F2EEE6';
+  const badgeW = 58;
+  const badgeX = cdX - cdR - 8 - badgeW;
+  roundRect(ctx, badgeX, cy - 24, badgeW, 20, 10);
+  ctx.fillStyle = o.isTurn ? 'rgba(0,0,0,0.05)' : '#F2EEE6';
   ctx.fill();
-  drawText(ctx, '棋子 ' + o.remain, badgeX + badgeW / 2, cy - 12, {
+  drawText(ctx, '棋子 ' + o.remain, badgeX + badgeW / 2, cy - 14, {
     color: PALETTE.text, fontSize: 11, align: 'center', baseline: 'middle',
   });
+  // 可揪/剩余：可揪>0 用阶段色；剩余用绿
   const remText = game.phase === 'move' ? '剩余 ' + o.remainNum : '可揪 ' + o.remainNum;
-  const remColor = game.phase === 'move' ? PALETTE.green : PALETTE.gold;
-  roundRect(ctx, badgeX, cy + 2, badgeW, 20, 10);
-  ctx.fillStyle = o.isTurn ? 'rgba(139,105,20,0.10)' : '#F2EEE6';
+  let remColor = PALETTE.textDim;
+  if (game.phase === 'move') {
+    remColor = PALETTE.green;
+  } else {
+    remColor = (o.remainNum > 0) ? activeColor : PALETTE.textDim;
+  }
+  roundRect(ctx, badgeX, cy, badgeW, 20, 10);
+  ctx.fillStyle = o.isTurn ? 'rgba(0,0,0,0.05)' : '#F2EEE6';
   ctx.fill();
-  drawText(ctx, remText, badgeX + badgeW / 2, cy + 12, {
+  drawText(ctx, remText, badgeX + badgeW / 2, cy + 10, {
     color: remColor, fontSize: 11, align: 'center', baseline: 'middle',
   });
 }
 
-// 阶段标识（居中醒目，按阶段变色）
+/** 十六进制色转 rgba */
+function hexToRgba(hex, alpha) {
+  try {
+    let c = hex.replace('#', '');
+    if (c.length === 3) c = c.split('').map((x) => x + x).join('');
+    const num = parseInt(c, 16);
+    const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+    return `rgba(${r},${g},${b},${alpha})`;
+  } catch (e) { return hex; }
+}
+
+// 阶段标识（居中醒目，按阶段变色，带立体感）
 function drawStagePill(ctx) {
   const pw = 150;
-  const ph = 32;
+  const ph = 34;
   const px = (W - pw) / 2;
   const py = state.statusBarHeight + 10;
-  const color = PHASE_COLORS[game.phase] || PALETTE.gold;
+  const pc = phaseColor();
+  const color = pc.main;
+  const dark = pc.dark;
 
-  roundRect(ctx, px, py, pw, ph, ph / 2);
-  ctx.fillStyle = color;
+  // 底部阴影（立体感，用深色）
+  roundRect(ctx, px, py + 3, pw, ph, ph / 2);
+  ctx.fillStyle = 'rgba(60,47,40,0.22)';
   ctx.fill();
+  // 主体（垂直渐变：上亮下深，更有质感）
+  const g = ctx.createLinearGradient(0, py, 0, py + ph);
+  g.addColorStop(0, color);
+  g.addColorStop(1, dark);
+  roundRect(ctx, px, py, pw, ph, ph / 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  // 顶部高光线
+  ctx.beginPath();
+  ctx.arc(px + pw / 2, py + ph - 2, pw / 2 - 4, Math.PI, 0);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.30)';
+  ctx.stroke();
+  // 文字垂直居中
   drawText(ctx, game.phaseLabel, W / 2, py + ph / 2 + 1, {
-    color: '#FFFFFF', fontSize: 20, align: 'center', bold: true,
+    color: '#FFFFFF', fontSize: 20, align: 'center', baseline: 'middle', bold: true,
   });
 }
 
@@ -506,14 +595,38 @@ function drawBoard(ctx, topY, size) {
   const step = size / 5;
   boardGeo = { ox, oy, step, size };
 
-  drawCard(ctx, { x: ox - 16, y: oy - 16, w: size + 32, h: size + 32, radius: 16 });
+  // 外层白底圆角卡（参照 figma 走子阶段棋盘）
+  const pad = 18;
+  drawCard(ctx, { x: ox - pad, y: oy - pad, w: size + pad * 2, h: size + pad * 2, radius: 16 });
+  // 棋盘暖米色底（figma board-bg #E8DBCF）
+  roundRect(ctx, ox, oy, size, size, 8);
+  ctx.fillStyle = '#E8DBCF';
+  ctx.fill();
 
-  // 棋盘点（深棕描边风格）
-  ctx.fillStyle = PALETTE.boardDot;
+  // 深棕闭合网格线（figma #3C2F28, 1.5px）
+  ctx.strokeStyle = '#3C2F28';
+  ctx.lineWidth = 1.5;
+  // 外框（闭合，略粗）
+  ctx.strokeRect(ox, oy, size, size);
+  // 内线
+  ctx.lineWidth = 1.5;
+  for (let i = 1; i < 5; i++) {
+    ctx.beginPath();
+    ctx.moveTo(ox + i * step, oy);
+    ctx.lineTo(ox + i * step, oy + size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(ox, oy + i * step);
+    ctx.lineTo(ox + size, oy + i * step);
+    ctx.stroke();
+  }
+
+  // 交叉点（figma board-dot #C0B8A8）
+  ctx.fillStyle = '#C0B8A8';
   for (let r = 0; r < 6; r++) {
     for (let c = 0; c < 6; c++) {
       ctx.beginPath();
-      ctx.arc(ox + c * step, oy + r * step, 3.5, 0, Math.PI * 2);
+      ctx.arc(ox + c * step, oy + r * step, 3, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -524,7 +637,7 @@ function drawBoard(ctx, topY, size) {
   game.boardPieces.forEach((p) => {
     const px = ox + p.c * step;
     const py = oy + p.r * step;
-    const radius = step * 0.42; // 放大棋子以提升点击命中（设计稿 36px 基准）
+    const radius = step * 0.36; // 棋子略缩小，更清爽
     const isCapturable = game.phase === 'capture' && !game.moveCaptureMode && p.color !== myColorStr;
     const isSelected = game.phase === 'move' && p.selected;
     ui.drawPiece(ctx, {
@@ -579,29 +692,76 @@ function drawBottomActions(ctx) {
   }
 }
 
-function drawDrawRequest(ctx) {
+// 统一的二次确认弹窗（认输风格）：淡雅、字号偏小、按钮全宽圆角
+function drawConfirmModal(ctx, opts) {
   ctx.fillStyle = 'rgba(60,47,40,0.5)';
   ctx.fillRect(0, 0, W, H);
-  const pw = W * 0.8, ph = Math.max(200, Math.round(H * 0.34)), px = (W - pw) / 2, py = (H - ph) / 2;
-  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
-  drawText(ctx, '对方请求求和', W / 2, py + 70, { color: PALETTE.text, fontSize: 30, align: 'center', bold: true });
-  drawText(ctx, game.drawRequestName || '', W / 2, py + 110, { color: PALETTE.textDim, fontSize: 22, align: 'center' });
-  rects.acceptDraw = drawButton(ctx, { text: '同意', x: px + 30, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
-    fill: PALETTE.green, textColor: '#FFFFFF', fontSize: 26 });
-  rects.rejectDraw = drawButton(ctx, { text: '拒绝', x: px + 60 + (pw - 90) / 2, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
-    fill: PALETTE.panel, textColor: PALETTE.red, fontSize: 26, border: PALETTE.red });
+  const pw = W * 0.76, ph = Math.max(160, Math.round(H * 0.26));
+  const px = (W - pw) / 2, py = (H - ph) / 2;
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 18 });
+  // 标题（缩小、淡雅）
+  drawText(ctx, opts.title || '', W / 2, py + 50, { color: PALETTE.text, fontSize: 18, align: 'center', bold: true });
+  if (opts.subtitle) {
+    drawText(ctx, opts.subtitle, W / 2, py + 78, { color: PALETTE.textDim, fontSize: 14, align: 'center' });
+  }
+  // 双按钮（全宽圆角，主按钮金色描边/副按钮红色描边，缩小字号）
+  const btnY = py + ph - 56;
+  const btnGap = 14;
+  const btnW = (pw - 28 - btnGap) / 2;
+  const btnH = 40;
+  rects[opts.confirmKey] = drawButton(ctx, {
+    text: opts.confirmText || '确定',
+    x: px + 14, y: btnY, w: btnW, h: btnH,
+    fill: PALETTE.panel, textColor: opts.confirmColor || PALETTE.gold,
+    fontSize: 16, border: opts.confirmColor || PALETTE.gold,
+  });
+  rects[opts.cancelKey] = drawButton(ctx, {
+    text: opts.cancelText || '取消',
+    x: px + 14 + btnW + btnGap, y: btnY, w: btnW, h: btnH,
+    fill: PALETTE.panel, textColor: PALETTE.textDim,
+    fontSize: 16, border: PALETTE.panelBorder,
+  });
+}
+
+function drawDrawRequest(ctx) {
+  // 对方求和请求（接收方）：主按钮=同意（绿色）、副按钮=拒绝
+  ctx.fillStyle = 'rgba(60,47,40,0.5)';
+  ctx.fillRect(0, 0, W, H);
+  const pw = W * 0.76, ph = Math.max(180, Math.round(H * 0.28));
+  const px = (W - pw) / 2, py = (H - ph) / 2;
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 18 });
+  drawText(ctx, '对方请求求和', W / 2, py + 50, { color: PALETTE.text, fontSize: 18, align: 'center', bold: true });
+  drawText(ctx, game.drawRequestName || '', W / 2, py + 78, { color: PALETTE.textDim, fontSize: 14, align: 'center' });
+  const btnY = py + ph - 56;
+  const btnGap = 14;
+  const btnW = (pw - 28 - btnGap) / 2;
+  const btnH = 40;
+  rects.acceptDraw = drawButton(ctx, { text: '同意', x: px + 14, y: btnY, w: btnW, h: btnH,
+    fill: PALETTE.panel, textColor: PALETTE.green, fontSize: 16, border: PALETTE.green });
+  rects.rejectDraw = drawButton(ctx, { text: '拒绝', x: px + 14 + btnW + btnGap, y: btnY, w: btnW, h: btnH,
+    fill: PALETTE.panel, textColor: PALETTE.red, fontSize: 16, border: PALETTE.red });
+}
+
+function drawRequestDrawConfirm(ctx) {
+  drawConfirmModal(ctx, {
+    title: '确定向对方求和吗？',
+    confirmKey: 'confirmRequestDraw',
+    cancelKey: 'cancelRequestDraw',
+    confirmText: '求和',
+    cancelText: '取消',
+    confirmColor: PALETTE.gold,
+  });
 }
 
 function drawGiveUpConfirm(ctx) {
-  ctx.fillStyle = 'rgba(60,47,40,0.5)';
-  ctx.fillRect(0, 0, W, H);
-  const pw = W * 0.8, ph = Math.max(180, Math.round(H * 0.30)), px = (W - pw) / 2, py = (H - ph) / 2;
-  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
-  drawText(ctx, '确定认输吗？', W / 2, py + 80, { color: PALETTE.text, fontSize: 30, align: 'center', bold: true });
-  rects.confirmGiveUp = drawButton(ctx, { text: '确定', x: px + 30, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
-    fill: PALETTE.red, textColor: '#FFFFFF', fontSize: 26 });
-  rects.cancelGiveUp = drawButton(ctx, { text: '取消', x: px + 60 + (pw - 90) / 2, y: py + ph - 80, w: (pw - 90) / 2, h: 56,
-    fill: PALETTE.panel, textColor: PALETTE.text, fontSize: 26, border: PALETTE.panelBorder });
+  drawConfirmModal(ctx, {
+    title: '确定认输吗？',
+    confirmKey: 'confirmGiveUp',
+    cancelKey: 'cancelGiveUp',
+    confirmText: '认输',
+    cancelText: '取消',
+    confirmColor: PALETTE.red,
+  });
 }
 
 function drawSettle(ctx) {
@@ -640,6 +800,11 @@ function onTouch(x, y) {
   if (game.showGiveUpConfirm) {
     if (hit(rects.confirmGiveUp, x, y)) { wsManager.send('give_up'); game.showGiveUpConfirm = false; }
     else if (hit(rects.cancelGiveUp, x, y)) { game.showGiveUpConfirm = false; }
+    return;
+  }
+  if (game.showRequestDraw) {
+    if (hit(rects.confirmRequestDraw, x, y)) { wsManager.send('request_draw'); game.drawPaused = true; game.showRequestDraw = false; }
+    else if (hit(rects.cancelRequestDraw, x, y)) { game.showRequestDraw = false; }
     return;
   }
   if (game.showSettings) {
@@ -756,13 +921,8 @@ function pieceAt(r, c) {
 
 function requestDraw() {
   if (game.showDrawRequest) { wx.showToast({ title: '已有待处理的和棋请求', icon: 'none' }); return; }
-  wx.showModal({
-    title: '求和',
-    content: '确定向对方求和吗？',
-    success: (res) => {
-      if (res.confirm) { wsManager.send('request_draw'); game.drawPaused = true; }
-    },
-  });
+  if (game.drawPaused) { wx.showToast({ title: '等待对方响应中...', icon: 'none' }); return; }
+  game.showRequestDraw = true;
 }
 
 module.exports = { onEnter, onLeave, onDraw, onTouch, onWs: () => {} };
