@@ -725,6 +725,65 @@ class GameEngine {
     };
   }
 
+  /**
+   * 超时代管走子：在走子阶段完整执行"走一步 + 完成走子产生的全部联动揪子"。
+   * 修复"走子阶段超时只走一步，剩余的联动揪子未完成"的问题。
+   * - 若当前有待处理揪子（myCatchNum>0，含走子后产生），先循环揪完；
+   * - 否则走一步；若走子后产生联动揪子，继续完成揪子；
+   * - 无合法移动 → 判负。
+   * @returns 最后一次操作结果
+   */
+  autoMoveAll(color) {
+    const openid = this.getPlayerByColor(color).openid;
+    const enemyColor = this.getOpponentColor(color);
+    const myCatchKey = color === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
+
+    let lastResult = null;
+    let guard = 0;
+    while (guard < 50) {
+      guard++;
+
+      // 1) 优先完成待处理的联动揪子（走子后产生 / 上一回合遗留）
+      if (this[myCatchKey] > 0) {
+        const formedCells = getAllFormed(this.board);
+        const capturable = getCapturableCells(this.board, enemyColor, formedCells);
+        if (capturable.length === 0) break; // 无可揪目标
+        const cell = capturable[0];
+        const res = this.linkedCapturePiece(openid, cell.r, cell.c);
+        if (!res.success) break;
+        lastResult = res;
+        if (this.currentTurn !== color) break; // 揪完次数已切走 / 已结算
+        continue;
+      }
+
+      // 2) 无待揪子 → 走一步
+      const legalMoves = getLegalMoves(this.board, color);
+      if (legalMoves.length === 0) {
+        // 无合法移动 → 判负
+        const winner = color === BLACK ? WHITE : BLACK;
+        return this.settleGame(
+          winner === BLACK ? GameResult.BLACK_WIN : GameResult.WHITE_WIN,
+          EndReason.CHECKMATE
+        );
+      }
+      const move = legalMoves[0];
+      const res = this.movePiece(openid, move.fromR, move.fromC, move.toR, move.toC);
+      lastResult = res;
+      if (this.currentTurn !== color) break; // 走子后切走 / 已结算
+      // 走子后若未切走且产生联动揪子（myCatchNum>0），循环继续揪子
+      if (this[myCatchKey] <= 0) break; // 无联动揪子，本次走子回合结束
+    }
+
+    return lastResult || {
+      success: true,
+      lastAction: 'move',
+      board: cloneBoard(this.board),
+      catchNums: { black: this.blackCatchNum, white: this.whiteCatchNum },
+      currentTurn: this.currentTurn,
+      stage: this.stage,
+    };
+  }
+
   /** 超时自动操作 */
   autoTimeout(color) {
     this.consecutiveTimeouts[color]++;
@@ -760,19 +819,8 @@ class GameEngine {
       }
 
       case Stage.MOVING: {
-        // 随机走一步
-        const legalMoves = getLegalMoves(this.board, color);
-        if (legalMoves.length > 0) {
-          const move = legalMoves[0];
-          autoResult = this.movePiece(openid, move.fromR, move.fromC, move.toR, move.toC);
-        } else {
-          // 无合法移动 → 判负
-          const winner = color === BLACK ? WHITE : BLACK;
-          autoResult = this.settleGame(
-            winner === BLACK ? GameResult.BLACK_WIN : GameResult.WHITE_WIN,
-            EndReason.CHECKMATE
-          );
-        }
+        // 完整走子托管：走一步 + 完成走子产生的全部联动揪子
+        autoResult = this.autoMoveAll(color);
         break;
       }
 

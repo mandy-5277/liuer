@@ -5,7 +5,7 @@
  * 用 Canvas 绘制；签到等操作通过 WS 与服务端同步。
  */
 
-const { state, saveProfile, AVATAR_PRESETS } = require('../state');
+const { state, saveProfile, AVATAR_PRESETS, syncUserData } = require('../state');
 const { wsManager } = require('../utils/websocket');
 const { PALETTE, drawText, drawCard, drawAvatar, hit, drawButton, roundRect, drawBottomNav, FONT_FAMILY } = require('../utils/ui');
 const { SERVER_BASE, AD_UNIT_ID, AD_REWARD_DAILY, SHARE_REWARD_DAILY } = require('../config');
@@ -83,6 +83,8 @@ function onResourceUpdate(data) {
   if (data.rankScore !== undefined) state.rankScore = data.rankScore;
   if (data.rankName !== undefined) state.rankName = data.rankName;
   if (data.winRate !== undefined) state.winRate = data.winRate;
+  // 同步场次统计（与服务端资源更新保持一致）
+  syncUserData(data);
 }
 
 // 登录成功后用服务端权威每日次数同步本地显示变量，登录即决定按钮是否可点
@@ -682,35 +684,66 @@ function watchAdForEnergy() {
 
 /**
  * 分享换精力：
- * 仅当用户【真正完成分享】（成功回调触发）后才发奖励请求，杜绝"点了分享按钮就加精力"。
- * - success：分享成功 → 发 get_share_reward 领奖
- * - fail：用户取消分享 → 不发，提示未完成
- * - 极端异常（shareAppMessage 抛错/环境不支持）：兜底发放，避免用户永远拿不到（此时用户未经历取消）
+ * 依赖微信 success/fail 回调。规则（按用户建议）：
+ *  - success：直接发奖 + 提示「分享成功，精力 +5」
+ *  - fail 且 点击→返回耗时 < 2s：弹「分享未成功，请再次分享」（取消 / 再次分享）
+ *  - fail 且 耗时 ≥ 2s：视为已分享，直接发奖
+ *  - 无任何回调（8s 兜底）：直接发奖，避免「没反应」
+ * 用 done 守卫确保只处理一次，杜绝重复弹窗。
  */
 function shareForEnergy() {
-  const grantReward = () => {
+  if (dailyShareCount >= SHARE_REWARD_DAILY) {
+    wx.showToast({ title: '今日分享次数已用完', icon: 'none' });
+    return;
+  }
+  const t0 = Date.now();
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    wx.hideLoading && wx.hideLoading();
+  };
+  const grant = () => {
+    finish();
+    wx.showToast({ title: '分享成功，精力 +5', icon: 'success' });
     try { wsManager.send('get_share_reward'); } catch (e) { /* ignore */ }
   };
+  const onFail = () => {
+    if (done) return;
+    const dt = Date.now() - t0;
+    if (dt < 2000) {
+      // 太快返回：几乎肯定是没分享成功 → 提示再次分享
+      finish();
+      wx.showModal({
+        title: '分享未成功',
+        content: '分享好友后可获得 +5 精力，是否再次分享？',
+        confirmText: '再次分享',
+        cancelText: '取消',
+        success: (r) => { if (r.confirm) shareForEnergy(); },
+      });
+    } else {
+      // 停留较久才返回：视为已分享，直接发奖
+      grant();
+    }
+  };
+
+  wx.showLoading({ title: '请完成分享...', mask: true });
+  const timer = setTimeout(() => { if (!done) grant(); }, 8000); // 无回调兜底
+
   if (typeof wx.shareAppMessage === 'function') {
     try {
       wx.shareAppMessage({
         title: '【下六儿】快来和我下六儿，赢取积分！',
         imageUrl: '',
-        success: () => {
-          // 分享真正成功后才发奖励
-          grantReward();
-        },
-        fail: () => {
-          // 用户取消分享：不发奖励
-          wx.showToast({ title: '分享未完成，未发放奖励', icon: 'none' });
-        },
+        success: () => { clearTimeout(timer); grant(); },
+        fail: () => { clearTimeout(timer); onFail(); },
       });
     } catch (e) {
-      // shareAppMessage 抛错（非用户取消），兜底发放
-      grantReward();
+      clearTimeout(timer);
+      grantReward(); // 极端异常兜底
     }
   } else {
-    // 环境不支持分享（开发者工具等），直接发放便于联调
+    clearTimeout(timer);
     wx.showToast({ title: '当前环境不支持分享，已直接发放', icon: 'none' });
     grantReward();
   }
@@ -749,21 +782,21 @@ function dim(ctx) {
 /** 绘制"换头像"浮层（预设头像网格 + 上传相册 + 取消） */
 function drawAvatarPickerOverlay(ctx) {
   dim(ctx);
-  const pw = W * 0.86, ph = Math.round(H * 0.5), px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.86, ph = Math.round(H * 0.56), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 20 });
 
-  drawText(ctx, '更换头像', W / 2, py + 48, { color: PALETTE.text, fontSize: 26, align: 'center', bold: true });
-  drawText(ctx, '选择预设头像（均为单个图像）', W / 2, py + 76, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
+  drawText(ctx, '更换头像', W / 2, py + 44, { color: PALETTE.text, fontSize: 26, align: 'center', bold: true });
 
-  // 预设头像：6 个单图元 emoji，排成 3×2
-  const avatarR = 26;
+  // 预设头像：9 个 emoji，排成 3×3
+  const avatarR = 24;
   const gap = (pw - 48 - avatarR * 2 * 3) / 2;
   const startX = px + 24 + avatarR;
-  const rowY = py + 108;
+  const rowY = py + 86;
+  const rowGap = avatarR * 2 + 14;
   rects.presetAvatars = [];
   AVATAR_PRESETS.forEach((emoji, i) => {
     const ax = startX + (i % 3) * (avatarR * 2 + gap);
-    const ay = rowY + Math.floor(i / 3) * (avatarR * 2 + 16);
+    const ay = rowY + Math.floor(i / 3) * rowGap;
     const cur = (state.userInfo && state.userInfo.avatarUrl) === ('emoji:' + emoji);
     ctx.beginPath();
     ctx.arc(ax, ay, avatarR + 3, 0, Math.PI * 2);
@@ -775,7 +808,7 @@ function drawAvatarPickerOverlay(ctx) {
 
   // 上传相册 / 取消
   rects.avatarUploadBtn = drawButton(ctx, {
-    text: '📷 从相册上传', x: px + 40, y: py + ph - 108, w: pw - 80, h: 44,
+    text: '从相册上传', x: px + 40, y: py + ph - 108, w: pw - 80, h: 44,
     fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 18,
   });
   rects.avatarCancelBtn = drawButton(ctx, {
@@ -799,47 +832,72 @@ function handleAvatarPickerTouch(x, y) {
   return false;
 }
 
-/** 选择相册图片并上传，成功后作为头像（小游戏用 wx.chooseMedia） */
+/** 选择相册图片并上传，成功后作为头像（小游戏使用 wx.chooseMedia） */
 function uploadAvatar() {
-  wx.chooseMedia({
-    count: 1,
-    mediaType: ['image'],
-    sizeType: ['compressed'],
-    sourceType: ['album'],
-    success: (res) => {
-      const file = res.tempFiles && res.tempFiles[0];
-      const tempPath = file && file.tempFilePath;
-      if (!tempPath) return;
-      wx.showLoading({ title: '上传中', mask: true });
-      wx.getFileSystemManager().readFile({
-        filePath: tempPath,
-        encoding: 'base64',
-        success: (fr) => {
-          wx.request({
-            url: SERVER_BASE + '/api/avatar/upload',
-            method: 'POST',
-            header: { 'Content-Type': 'application/json' },
-            data: { openid: state.openid || '', base64: fr.data || '' },
-            success: (rr) => {
-              wx.hideLoading();
-              if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
-                const avatarUrl = rr.data.url;
-                const nickName = (state.userInfo && state.userInfo.nickName) || '';
-                saveProfile(nickName, avatarUrl);
-                wsManager.send('update_profile', { nickName, avatarUrl });
-                wx.showToast({ title: '头像已更新', icon: 'success' });
-                showAvatarPicker = false;
-              } else {
-                wx.showToast({ title: '上传失败', icon: 'none' });
-              }
-            },
-            fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+  if (typeof wx.chooseMedia !== 'function') {
+    wx.showToast({ title: '当前环境不支持相册选择', icon: 'none' });
+    return;
+  }
+  const doPick = () => {
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sizeType: ['compressed'],
+      sourceType: ['album'],
+      success: (res) => {
+        const file = res.tempFiles && res.tempFiles[0];
+        const tempPath = file && file.tempFilePath;
+        if (!tempPath) { wx.showToast({ title: '未选择图片', icon: 'none' }); return; }
+        wx.showLoading({ title: '上传中', mask: true });
+        wx.getFileSystemManager().readFile({
+          filePath: tempPath,
+          encoding: 'base64',
+          success: (fr) => {
+            wx.request({
+              url: SERVER_BASE + '/api/avatar/upload',
+              method: 'POST',
+              header: { 'Content-Type': 'application/json' },
+              data: { openid: state.openid || '', base64: fr.data || '' },
+              success: (rr) => {
+                wx.hideLoading();
+                if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
+                  const avatarUrl = rr.data.url;
+                  const nickName = (state.userInfo && state.userInfo.nickName) || '';
+                  saveProfile(nickName, avatarUrl);
+                  wsManager.send('update_profile', { nickName, avatarUrl });
+                  wx.showToast({ title: '头像已更新', icon: 'success' });
+                  showAvatarPicker = false;
+                } else {
+                  wx.showToast({ title: '上传失败', icon: 'none' });
+                }
+              },
+              fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+            });
+          },
+          fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
+        });
+      },
+      fail: (err) => {
+        const msg = (err && err.errMsg) || '';
+        // 用户主动取消：静默
+        if (msg.indexOf('cancel') >= 0) return;
+        // 权限/授权类错误（覆盖各机型不同文案）：引导去设置开启相册权限
+        if (/auth|deny|permission|album|authorize/i.test(msg)) {
+          wx.showModal({
+            title: '需要相册权限',
+            content: '上传头像需要访问相册，请在设置中开启相册权限后重试。',
+            confirmText: '去设置',
+            cancelText: '取消',
+            success: (r) => { if (r.confirm) wx.openSetting && wx.openSetting(); },
           });
-        },
-        fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
-      });
-    },
-  });
+          return;
+        }
+        // 其它异常：提示后关闭，避免重复弹窗卡死
+        wx.showToast({ title: '选择图片失败，请重试', icon: 'none' });
+      },
+    });
+  };
+  doPick();
 }
 
 /** 点击昵称：输入新昵称 */

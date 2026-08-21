@@ -53,7 +53,7 @@ function startBgm() {
       bgmAudio = wx.createInnerAudioContext();
       bgmAudio.src = 'assets/bgm.wav';
       bgmAudio.loop = true;
-      bgmAudio.volume = 0.45;
+      bgmAudio.volume = 0.75;
       bgmAudio.onError((err) => {
         console.warn('[Audio] BGM 加载失败:', err);
         bgmAudio = null;

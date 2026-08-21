@@ -7,7 +7,7 @@
  */
 
 const { wsManager } = require('../utils/websocket');
-const { state, saveProfile, AVATAR_PRESETS, randomNickname } = require('../state');
+const { state, saveProfile, AVATAR_PRESETS, randomNickname, syncUserData } = require('../state');
 const { PALETTE, drawButton, drawText, drawCard, drawAvatar, hit, roundRect, drawBottomNav } = require('../utils/ui');
 const { SERVER_BASE } = require('../config');
 const sceneMgr = require('./index');
@@ -129,6 +129,8 @@ function registerWs() {
     if (data.energyMax !== undefined) state.energy.max = data.energyMax;
     if (data.rankScore !== undefined) state.rankScore = data.rankScore;
     if (data.rankName) state.rankName = data.rankName;
+    // 同步场次/胜率（让首页胜率随对局实时刷新）
+    syncUserData(data);
   });
   wsManager.on('sign_in_result', (data) => {
     if (data && data.energy !== undefined) state.energy.current = data.energy;
@@ -697,36 +699,58 @@ function handleEnergyTouch(x, y) {
     return;
   }
   if (hit(rects.shareEnergy, x, y)) {
-    // 分享成功后才发放奖励（避免"点分享按钮就加精力"）
+    // 依赖微信 success/fail 回调：
+    //  - success：直接发奖
+    //  - fail 且 点击→返回 < 2s：弹「分享未成功，请再次分享」
+    //  - fail 且 ≥ 2s：视为已分享，直接发奖
+    //  - 无回调 8s 兜底：直接发奖。done 守卫确保只处理一次。
+    const t0 = Date.now();
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      wx.hideLoading && wx.hideLoading();
+    };
+    const grant = () => {
+      finish();
+      overlay = null;
+      wx.showToast({ title: '分享成功，精力 +5', icon: 'success' });
+      wsManager.send('get_share_reward');
+    };
+    const onFail = () => {
+      if (done) return;
+      const dt = Date.now() - t0;
+      if (dt < 2000) {
+        finish();
+        wx.showModal({
+          title: '分享未成功',
+          content: '分享好友后可获得 +5 精力，是否再次分享？',
+          confirmText: '再次分享',
+          cancelText: '取消',
+          success: (r) => { if (r.confirm) shareForEnergy(); },
+        });
+      } else {
+        grant();
+      }
+    };
+
+    wx.showLoading({ title: '请完成分享...', mask: true });
+    const timer = setTimeout(() => { if (!done) grant(); }, 8000);
+
     if (typeof wx.shareAppMessage === 'function') {
       try {
         wx.shareAppMessage({
           title: '【下六儿】快来和我下六儿，赢取积分！',
           imageUrl: '',
-          success: () => {
-            wsManager.send('get_share_reward');
-            overlay = null;
-            wx.showToast({ title: '已获得精力 +5', icon: 'success' });
-          },
-          fail: () => {
-            wx.showToast({ title: '分享未完成，未发放奖励', icon: 'none' });
-          },
+          success: () => { clearTimeout(timer); grant(); },
+          fail: () => { clearTimeout(timer); onFail(); },
         });
         return;
-      } catch (e) {
-        // shareAppMessage 抛错，兜底发放并关闭浮层
-        wsManager.send('get_share_reward');
-        overlay = null;
-        wx.showToast({ title: '已获得精力 +5', icon: 'success' });
-        return;
-      }
-    } else {
-      // 环境不支持分享，直接发放
-      wsManager.send('get_share_reward');
-      overlay = null;
-      wx.showToast({ title: '已获得精力 +5', icon: 'success' });
-      return;
+      } catch (e) { /* 忽略异常，走下方兜底 */ }
     }
+    clearTimeout(timer);
+    grant();
+    return;
   }
   if (hit(rects.signEnergy, x, y)) {
     wx.showLoading && wx.showLoading({ title: '签到中', mask: true });
@@ -740,23 +764,43 @@ function handleEnergyTouch(x, y) {
 // ========== 完善资料浮层（引导设置昵称 + 头像） ==========
 function drawProfileSetupOverlay(ctx) {
   dim(ctx);
-  const pw = W * 0.88, ph = Math.max(440, Math.round(H * 0.68)), px = (W - pw) / 2, py = (H - ph) / 2;
+  const pw = W * 0.88, ph = Math.max(480, Math.round(H * 0.72)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
 
-  drawText(ctx, '完善资料', W / 2, py + 44, { color: PALETTE.text, fontSize: 28, align: 'center', bold: true });
+  drawText(ctx, '完善资料', W / 2, py + 42, { color: PALETTE.text, fontSize: 28, align: 'center', bold: true });
 
-  // 当前选中的头像（大圆）
-  const bigR = 46;
-  drawAvatar(ctx, { x: W / 2, y: py + 110, r: bigR, avatar: profileAvatar, label: profileNick.slice(0, 1), ring: true });
+  // 当前选中的头像（大圆，与下方预设头像明显区分：加金色描边 + 更大）
+  const bigR = 42;
+  // 选中圈（更明显的对比）
+  ctx.beginPath();
+  ctx.arc(W / 2, py + 100, bigR + 6, 0, Math.PI * 2);
+  ctx.fillStyle = PALETTE.goldBright;
+  ctx.fill();
+  drawAvatar(ctx, { x: W / 2, y: py + 100, r: bigR, avatar: profileAvatar, label: profileNick.slice(0, 1), ring: false });
 
-  // 预设头像排（6 个 emoji）
-  const avatarR = 26;
+  // 昵称区（放在大头像下、预设头像上方，避免与预设头像重叠）
+  drawText(ctx, '我的昵称', px + 24, py + 162, { color: PALETTE.textDim, fontSize: 15 });
+  drawText(ctx, profileNick || '未设置', px + 24, py + 192, { color: PALETTE.text, fontSize: 22, bold: true });
+  rects.nickShuffle = drawButton(ctx, {
+    text: '换一个', x: px + pw - 184, y: py + 166, w: 80, h: 36,
+    fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 15, border: PALETTE.gold,
+  });
+  rects.nickEdit = drawButton(ctx, {
+    text: '输入昵称', x: px + pw - 96, y: py + 166, w: 72, h: 36,
+    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 15,
+  });
+
+  // 分隔提示
+  drawText(ctx, '选择头像', px + 24, py + 232, { color: PALETTE.textDim, fontSize: 15 });
+
+  // 预设头像排（3×3，缩到 r=22，独立区域，不与大头像/上传按钮重叠）
+  const avatarR = 22;
   const gap = (pw - 48 - avatarR * 2 * 3) / 2; // 每行3个
   const startX = px + 24 + avatarR;
-  const rowY = py + 175;
+  const rowY = py + 258;
   rects.presetAvatars = [];
   AVATAR_PRESETS.forEach((emoji, i) => {
-    const ax = startX + (i % 3) * ((avatarR * 2 + gap));
+    const ax = startX + (i % 3) * (avatarR * 2 + gap);
     const ay = rowY + Math.floor(i / 3) * (avatarR * 2 + 14);
     const selected = i === profileAvatarIndex;
     ctx.beginPath();
@@ -767,27 +811,15 @@ function drawProfileSetupOverlay(ctx) {
     rects.presetAvatars.push({ x: ax - avatarR - 3, y: ay - avatarR - 3, w: avatarR * 2 + 6, h: avatarR * 2 + 6, emoji });
   });
 
-  // 上传相册按钮
+  // 上传相册图片按钮（放在预设头像下方、完成按钮上方，并列区域独立）
   rects.uploadAvatar = drawButton(ctx, {
-    text: '上传相册图片', x: px + 40, y: py + 252, w: pw - 80, h: 44,
+    text: '上传相册图片', x: px + 40, y: py + ph - 120, w: pw - 80, h: 44,
     fill: PALETTE.panel, textColor: PALETTE.green, fontSize: 18, border: PALETTE.green,
   });
 
-  // 昵称区
-  drawText(ctx, '我的昵称', px + 24, py + 318, { color: PALETTE.textDim, fontSize: 16 });
-  drawText(ctx, profileNick || '未设置', px + 24, py + 352, { color: PALETTE.text, fontSize: 24, bold: true });
-  rects.nickShuffle = drawButton(ctx, {
-    text: '换一个', x: px + pw - 180, y: py + 326, w: 80, h: 38,
-    fill: PALETTE.panel, textColor: PALETTE.gold, fontSize: 16, border: PALETTE.gold,
-  });
-  rects.nickEdit = drawButton(ctx, {
-    text: '输入昵称', x: px + pw - 92, y: py + 326, w: 72, h: 38,
-    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 16,
-  });
-
-  // 确定
+  // 完成按钮（原"开始游戏"）
   rects.profileConfirm = drawButton(ctx, {
-    text: '开始游戏', x: px + 40, y: py + ph - 64, w: pw - 80, h: 48,
+    text: '完成', x: px + 40, y: py + ph - 64, w: pw - 80, h: 48,
     fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 22,
   });
 }

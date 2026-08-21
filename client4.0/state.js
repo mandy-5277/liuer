@@ -16,15 +16,15 @@ const SERVER_URL = SERVER_BASE;
 
 /**
  * 预设头像（emoji，avatarUrl 存 "emoji:xxx" 前缀格式）。
- * 注意：必须使用【单个图元】emoji。
- * 不能用 ZWJ 组合序列（如 👨🌾=男人+麦穗、🕶️=墨镜+变体选择符），
- * 否则在 Canvas 圆形裁剪下会渲染成"两个元素并列"或"只显示中间一部分"。
  */
 const AVATAR_PRESETS = [
+  '👦',   // 小男孩儿
+  '👧',   // 小女孩儿
   '👨',   // 男生
   '👩',   // 女生
   '👴',   // 老头
   '👵',   // 老太
+  '🐶',   // 大黄狗
   '🐂',   // 耕牛
   '🌾',   // 麦穗
 ];
@@ -50,6 +50,9 @@ const state = {
 
   // 需要引导用户完善资料（昵称/头像）时置 true，由首页弹出"完善资料"浮层
   showProfileSetup: false,
+  // 标记本次登录为"清缓存强制引导资料"（本地无资料缓存时置位），
+  // 用于区分"真正的首次"与"清缓存后重新确认"，确保清缓存重登录必弹浮层。
+  profileSetupForced: false,
 
   // 每日看视频/分享已用次数（权威值，由服务端 login_success / reward 结果同步）
   dailyAdCount: undefined,
@@ -208,16 +211,19 @@ function ensureUserInfoAndConnect() {
     stored = wx.getStorageSync('userInfo');
   } catch (e) { /* ignore */ }
   if (stored && (stored.nickName || stored.avatarUrl)) {
+    // 本地已有资料缓存：直接用本地资料，不再弹浮层（正常登录）
     state.userInfo = Object.assign({}, state.userInfo, stored);
     state.showProfileSetup = false;
     connectGameServer();
     return;
   }
 
-  // 无本地资料：先不急于弹浮层。
-  // 先以空昵称连接服务器，等待 login_success 返回后，由服务端真实资料（nickName 是否存在）
-  // 来决定是否需要"完善资料"。这样同一微信用户后续登录（服务端已存昵称）就不会再弹。
-  state.showProfileSetup = false;
+  // 本地无任何资料缓存（含清除全部缓存场景）：
+  // 立即弹出"完善资料"浮层，让用户重新设置昵称/头像。
+  // 即使服务端已存有该用户的历史昵称，清缓存后也视为需要重新确认资料，
+  // 故强制 showProfileSetup = true，并在收到服务端资料后保留弹出状态（仅预填）。
+  state.showProfileSetup = true;
+  state.profileSetupForced = true; // 标记：本次为清缓存强制引导
   connectGameServer();
 }
 
@@ -226,6 +232,7 @@ function saveProfile(nickName, avatarUrl) {
   state.userInfo = Object.assign({}, state.userInfo, { nickName, avatarUrl });
   try { wx.setStorageSync('userInfo', { nickName, avatarUrl }); } catch (e) { /* ignore */ }
   state.showProfileSetup = false;
+  state.profileSetupForced = false; // 确认后清除强制标记
 }
 
 function connectGameServer() {
@@ -271,7 +278,12 @@ function syncUserData(data) {
       nickName: data.nickName,
       avatarUrl: data.avatarUrl,
     });
-    if (hasName) {
+    if (state.profileSetupForced) {
+      // 本次为"清缓存强制引导"：保留完善资料浮层（用户清缓存后应重新确认资料），
+      // 但用服务端已有资料预填，避免空白。用户确认后会写回服务端并关闭浮层。
+      state.showProfileSetup = true;
+      console.log('[State] 清缓存强制引导资料，保留完善资料浮层');
+    } else if (hasName) {
       // 服务端已有昵称（非首次）→ 不再需要引导完善资料，并持久化到本地
       state.showProfileSetup = false;
       try { wx.setStorageSync('userInfo', { nickName: data.nickName, avatarUrl: data.avatarUrl || '' }); } catch (e) { /* ignore */ }

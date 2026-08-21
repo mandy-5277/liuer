@@ -300,6 +300,21 @@ async function leaveRoom(uid, roomId) {
 async function startGame(blackPlayer, whitePlayer, roomType) {
   const gameId = generateGameId();
 
+  // ★ 积分基准实时化：开局前用 DB 最新积分覆盖传入的快照。
+  // 此前用登录时的 session.user.rankScore 快照作为结算基准，会导致：
+  //   一次登录内多次对局后，后续结算基准错乱（积分被算错/看似无变化）。
+  // 这里统一以 DB 实时值为准，保证每次对局结算基准准确。
+  try {
+    const [bU, wU] = await Promise.all([
+      userService.findByOpenid(blackPlayer.openid),
+      userService.findByOpenid(whitePlayer.openid),
+    ]);
+    if (bU) blackPlayer.rankScore = bU.rankScore || 0;
+    if (wU) whitePlayer.rankScore = wU.rankScore || 0;
+  } catch (e) {
+    console.error('[Session] 刷新开局积分失败（使用传入快照）:', e.message);
+  }
+
   // 开局消耗双方精力（每局 energyPerGame），不足则跳过扣减，避免对局卡死
   // 机器人无精力系统，不参与扣减
   const cost = gameConfig.energyPerGame || 1;
@@ -745,26 +760,29 @@ async function finalizeGame(gameId, settleResult) {
   const freshBlackUser = await userService.findByOpenid(engine.blackPlayer.openid);
   const freshWhiteUser = await userService.findByOpenid(engine.whitePlayer.openid);
 
+  function buildResourceData(u) {
+    const total = (u?.winCount || 0) + (u?.loseCount || 0) + (u?.drawCount || 0);
+    return {
+      rankScore: u?.rankScore || 0,
+      rankName: u?.rankName || '初级小六',
+      energy: u?.energy || 0,
+      energyRecoverAt: u?.energyRecoverAt || 0,
+      energyMax: gameConfig.energyMax || 30,
+      winCount: u?.winCount || 0,
+      loseCount: u?.loseCount || 0,
+      drawCount: u?.drawCount || 0,
+      winRate: total > 0 ? Math.round((u?.winCount || 0) * 1000 / total) / 10 : 0,
+    };
+  }
+
   sendToPlayer(engine.blackPlayer.openid, {
     cmd: 'resource_update',
-    data: {
-      rankScore: freshBlackUser?.rankScore || 0,
-      rankName: freshBlackUser?.rankName || '初级小六',
-      energy: freshBlackUser?.energy || 0,
-      energyRecoverAt: freshBlackUser?.energyRecoverAt || 0,
-      energyMax: gameConfig.energyMax || 30,
-    },
+    data: buildResourceData(freshBlackUser),
   });
 
   sendToPlayer(engine.whitePlayer.openid, {
     cmd: 'resource_update',
-    data: {
-      rankScore: freshWhiteUser?.rankScore || 0,
-      rankName: freshWhiteUser?.rankName || '初级小六',
-      energy: freshWhiteUser?.energy || 0,
-      energyRecoverAt: freshWhiteUser?.energyRecoverAt || 0,
-      energyMax: gameConfig.energyMax || 30,
-    },
+    data: buildResourceData(freshWhiteUser),
   });
 }
 

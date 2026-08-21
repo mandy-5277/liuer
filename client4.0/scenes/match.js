@@ -5,7 +5,7 @@
  */
 
 const { wsManager } = require('../utils/websocket');
-const { state } = require('../state');
+const { state, syncUserData } = require('../state');
 const ui = require('../utils/ui');
 const { PALETTE, drawText, drawButton, drawCard, drawAvatar, hit, roundRect, PIECE_SKINS } = ui;
 const gameCore = require('../utils/game-core');
@@ -140,7 +140,12 @@ function removeWs() {
 }
 
 function onBoardUpdate(data) {
-  const remainingTime = data.remainingTime || 0;
+  // 换手检测：currentTurn 变化时，本回合重新从完整时长倒计时（服务端每次换手重置 15s）
+  const turnChanged = data.currentTurn !== game.currentTurn;
+  let remainingTime = data.remainingTime || 0;
+  if (turnChanged) {
+    remainingTime = game.timeTotal || 15; // 每次换手重新完整倒计时
+  }
   Object.assign(game, {
     currentTurn: data.currentTurn,
     remainingTime,
@@ -164,13 +169,15 @@ function onBoardUpdate(data) {
 
 function onStageChange(data) {
   const phase = gameCore.resolveStage(data.stage);
+  // 阶段切换视为换手，重新从完整时长倒计时
+  const remainingTime = game.timeTotal || 15;
   Object.assign(game, {
     phase,
     phaseLabel: gameCore.STAGE_LABELS[phase] || game.phaseLabel,
     currentTurn: data.currentTurn,
-    remainingTime: data.remainingTime || 0,
-    timerText: gameCore.formatTime(data.remainingTime || 0),
-    timeLow: (data.remainingTime || 0) > 0 && (data.remainingTime || 0) <= 10,
+    remainingTime,
+    timerText: gameCore.formatTime(remainingTime),
+    timeLow: false,
     myTurn: data.currentTurn === game.myColor,
     legalCells: [], selectedPieceIndex: -1, skipAvailable: false,
   });
@@ -179,7 +186,10 @@ function onStageChange(data) {
 }
 
 function onLinkedCapture(data) {
-  const remainingTime = data.remainingTime || 0;
+  // 换手检测：currentTurn 变化时重新完整倒计时
+  const turnChanged = data.currentTurn !== game.currentTurn;
+  let remainingTime = data.remainingTime || 0;
+  if (turnChanged) remainingTime = game.timeTotal || 15;
   Object.assign(game, {
     currentTurn: data.currentTurn, remainingTime,
     timerText: gameCore.formatTime(remainingTime),
@@ -249,6 +259,8 @@ function onResourceUpdate(data) {
   if (data.energyMax !== undefined) state.energy.max = data.energyMax;
   if (data.rankScore !== undefined) state.rankScore = data.rankScore;
   if (data.rankName) state.rankName = data.rankName;
+  // 同步场次/胜率（服务端 finalizeGame 后会推送 winCount/loseCount/drawCount/winRate）
+  syncUserData(data);
 }
 
 function onError(data) {
@@ -393,26 +405,42 @@ function rankNameFromScore(score) {
 }
 
 // 双方姓名卡 + 15秒倒计时环 + 棋子数/段位 + 执子颜色
-// 布局（参照 figma 对局页）：对手卡在棋盘上方、己方卡在棋盘下方，整体垂直居中。
+// 布局：对手卡在棋盘上方、己方卡在棋盘下方，整个「姓名板-棋盘-姓名板」作为一个整体
+// 在【阶段标签下方】与【底部操作按钮上方】之间严格垂直居中。
+// 关键：棋盘白卡自身有外边距(extend+pad)，需把这段外边距算进间距，
+// 否则白卡顶会向上侵入上方姓名板 → 视觉重叠。故「姓名板↔白卡边」间距统一为 gap。
 function drawPlayerCards(ctx) {
   const pad = 14;
-  const cardH = 66;      // 姓名板加高，更有质感
-  const cardGap = 26;    // 姓名板与棋盘之间的间隔
+  const cardH = 66;      // 姓名板高度
+  const gap = 24;        // 姓名板与棋盘白卡（视觉）间距，上、下相等
   const sbh = state.statusBarHeight;
 
   // 阶段标签
   drawStagePill(ctx);
 
-  // 棋盘尺寸：更大（参考 figma 走子阶段棋盘 250px 外层卡），但受屏高限制
-  const boardSize = Math.max(160, Math.min(W - 92, 258, (H - 270) * 0.52));
+  // 可用区间：阶段标签底部(高44) + 10 → 底部操作按钮顶部 - 12
+  const availTop = sbh + 10 + 44 + 10;
+  const availBottom = H - 88 - 12;
+  const availH = Math.max(0, availBottom - availTop);
 
-  // 垂直居中的可用区间：阶段标签之下 → 底部操作区(含跳过按钮)之上
-  // 注：drawBoard 的棋盘外卡自带 pad*2 边距，坐标计算需为它留空间
-  const availTop = sbh + 48;
-  const availBottom = H - 88 - 48 - 56; // 底部操作区 + 跳过按钮预留
-  const totalH = cardH + cardGap + (boardSize + 36) + cardGap + cardH; // 含棋盘外卡18*2边距
-  let startTop = availTop + (availBottom - availTop - totalH) / 2;
-  startTop = Math.max(startTop, availTop);
+  // 棋盘基础尺寸（受宽/高限制）
+  let boardSize = Math.max(160, Math.min(W - 92, 258, (H - 270) * 0.52));
+  // 白卡额外边距（与 drawBoard 完全一致：extend=step*0.35, pad=20）
+  let boardExtend = (boardSize / 5) * 0.35 + 20;
+  let boardOuterH = boardSize + boardExtend * 2;
+
+  // 整体需占高度：上卡 + gap + 白卡 + gap + 下卡
+  const totalH = cardH + gap + boardOuterH + gap + cardH;
+  if (totalH > availH) {
+    // 压缩棋盘，保证整体放下且不压按钮（不低于 160）
+    const maxOuter = availH - (cardH * 2 + gap * 2);
+    boardSize = Math.max(160, Math.floor((maxOuter - 40) / 1.14));
+    boardExtend = (boardSize / 5) * 0.35 + 20;
+    boardOuterH = boardSize + boardExtend * 2;
+  }
+
+  const stackH = cardH + gap + boardOuterH + gap + cardH;
+  const startTop = availTop + (availH - stackH) / 2;
 
   const oppTop = startTop;
   drawPlayerCard(ctx, {
@@ -426,11 +454,15 @@ function drawPlayerCards(ctx) {
     pieceColor: game.myColor === 1 ? 'white' : 'black',
   });
 
-  const boardTop = oppTop + cardH + cardGap; // 加大的间隔
+  // 白卡顶 = 上姓名板底边 + gap；网格顶 = 白卡顶 + boardExtend
+  const whiteTop = oppTop + cardH + gap;
+  const boardTop = whiteTop + boardExtend;
   drawBoard(ctx, boardTop, boardSize);
 
+  // 白卡底 = boardTop + boardOuterH；下姓名板顶 = 白卡底 + gap（与上方相等）
+  const whiteBottom = boardTop + boardOuterH;
   drawPlayerCard(ctx, {
-    x: pad, y: boardTop + boardSize + cardGap + 18, w: W - pad * 2, h: cardH,
+    x: pad, y: whiteBottom + gap, w: W - pad * 2, h: cardH,
     name: game.myInfo.nickName || '我',
     avatar: game.myInfo.avatarUrl || '',
     rank: game.myInfo.rankScore || 0,
@@ -511,9 +543,9 @@ function drawPlayerCard(ctx, o) {
     ctx.stroke();
     ctx.lineCap = 'butt';
   }
-  // 圆内数字（阶段色）
+  // 圆内数字（严格居中于圆圈）
   const cdText = o.isTurn ? String(Math.ceil(game.remainingTime || 0)) : '--';
-  drawText(ctx, cdText, cdX, cdY + 1, { color: cdColor, fontSize: 13, align: 'center', baseline: 'middle', bold: o.isTurn });
+  drawText(ctx, cdText, cdX, cdY, { color: cdColor, fontSize: 13, align: 'center', baseline: 'middle', bold: o.isTurn });
   // "秒"字移到圆圈右边，但缩进卡内避免溢出
   const cdTextW = ctx.measureText(cdText).width;
   const secX = cdX + cdR + 6;
@@ -560,8 +592,8 @@ function hexToRgba(hex, alpha) {
 
 // 阶段标识（居中醒目，按阶段变色，带立体感）
 function drawStagePill(ctx) {
-  const pw = 150;
-  const ph = 34;
+  const pw = 220;
+  const ph = 44;   // 加高，更醒目
   const px = (W - pw) / 2;
   const py = state.statusBarHeight + 10;
   const pc = phaseColor();
@@ -587,7 +619,7 @@ function drawStagePill(ctx) {
   ctx.stroke();
   // 文字垂直居中
   drawText(ctx, game.phaseLabel, W / 2, py + ph / 2 + 1, {
-    color: '#FFFFFF', fontSize: 20, align: 'center', baseline: 'middle', bold: true,
+    color: '#FFFFFF', fontSize: 21, align: 'center', baseline: 'middle', bold: true,
   });
 }
 
@@ -597,21 +629,29 @@ function drawBoard(ctx, topY, size) {
   const step = size / 5;
   boardGeo = { ox, oy, step, size };
 
-  // 外层白底圆角卡（参照 figma 走子阶段棋盘）
-  const pad = 18;
-  drawCard(ctx, { x: ox - pad, y: oy - pad, w: size + pad * 2, h: size + pad * 2, radius: 16 });
-  // 棋盘暖米色底（figma board-bg #E8DBCF）
-  roundRect(ctx, ox, oy, size, size, 8);
+  // 修复：保持棋子/交叉点与网格线严格对齐（ox + c*step），
+  // 仅让暖米色棋盘底向外延伸一段距离，外侧再加白色边框。
+  const extend = step * 0.35; // 米色底延伸出网格线的距离
+  const pad = 20;             // 外侧白边宽度（扩大，让棋盘更清爽）
+
+  // 1) 外层白底卡（白边加宽，直角描边，整体仍作圆角卡以柔和视觉）
+  drawCard(ctx, {
+    x: ox - extend - pad, y: oy - extend - pad,
+    w: size + (extend + pad) * 2, h: size + (extend + pad) * 2,
+    radius: 16, fill: '#FFFFFF', border: '#E8E3DA'
+  });
+
+  // 2) 暖米色棋盘底（延伸超出网格线，圆角）
+  roundRect(ctx, ox - extend, oy - extend, size + extend * 2, size + extend * 2, 12);
   ctx.fillStyle = '#E8DBCF';
   ctx.fill();
 
-  // 深棕闭合网格线（figma #3C2F28, 1.5px）
+  // 3) 深棕网格线（与棋子坐标严格对齐，直角直线，无圆角）
   ctx.strokeStyle = '#3C2F28';
   ctx.lineWidth = 1.5;
-  // 外框（闭合，略粗）
+  // 外框（闭合，直线）
   ctx.strokeRect(ox, oy, size, size);
   // 内线
-  ctx.lineWidth = 1.5;
   for (let i = 1; i < 5; i++) {
     ctx.beginPath();
     ctx.moveTo(ox + i * step, oy);
@@ -623,7 +663,7 @@ function drawBoard(ctx, topY, size) {
     ctx.stroke();
   }
 
-  // 交叉点（figma board-dot #C0B8A8）
+  // 4) 交叉点（与棋子坐标一致）
   ctx.fillStyle = '#C0B8A8';
   for (let r = 0; r < 6; r++) {
     for (let c = 0; c < 6; c++) {
