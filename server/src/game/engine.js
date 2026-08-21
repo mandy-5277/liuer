@@ -671,6 +671,60 @@ class GameEngine {
 
   // ========== 超时托管 ==========
 
+  /**
+   * 超时代管揪子：一次性揪完当前玩家【剩余的所有可揪敌方棋子】。
+   * 修复"本来可揪多子，揪 1 个后超时就被跳过剩余揪子"的问题。
+   * - 循环调用 capturePiece，直到次数耗尽或无可揪目标；
+   * - capturePiece 在次数耗尽时会自动推进回合（_advanceCaptureTurn），
+   *   因此循环会在回合切走后自然停止；
+   * - 若仍有剩余次数但已无可揪目标，则跳过并推进回合。
+   * @returns 最后一次操作结果（含最新 board / catchNums / currentTurn / stage）
+   */
+  autoCaptureAll(color) {
+    const openid = this.getPlayerByColor(color).openid;
+    const enemyColor = this.getOpponentColor(color);
+    const myCatchKey = color === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
+
+    let lastResult = null;
+    let guard = 0;
+    while (this[myCatchKey] > 0 && guard < 40) {
+      guard++;
+      const formedCells = getAllFormed(this.board);
+      const capturable = getCapturableCells(this.board, enemyColor, formedCells);
+      if (capturable.length === 0) break; // 无可揪目标
+      const cell = capturable[0];
+      const res = this.capturePiece(openid, cell.r, cell.c);
+      if (!res.success) break;
+      lastResult = res;
+      if (this.currentTurn !== color) break; // 次数耗尽已切走 / 已结算
+    }
+
+    // 仍有剩余次数但已无可揪目标：跳过并推进（兼容原逻辑）
+    if (this[myCatchKey] > 0 && this.currentTurn === color) {
+      this[myCatchKey] = 0;
+      this._advanceCaptureTurn();
+      lastResult = {
+        success: true,
+        lastAction: 'capture',
+        board: cloneBoard(this.board),
+        catchNums: { black: this.blackCatchNum, white: this.whiteCatchNum },
+        currentTurn: this.currentTurn,
+        stage: this.stage,
+        stageChanged: this.stage === Stage.MOVING,
+        skipped: true,
+      };
+    }
+
+    return lastResult || {
+      success: true,
+      lastAction: 'capture',
+      board: cloneBoard(this.board),
+      catchNums: { black: this.blackCatchNum, white: this.whiteCatchNum },
+      currentTurn: this.currentTurn,
+      stage: this.stage,
+    };
+  }
+
   /** 超时自动操作 */
   autoTimeout(color) {
     this.consecutiveTimeouts[color]++;
@@ -700,25 +754,8 @@ class GameEngine {
       }
 
       case Stage.CAPTURING: {
-        // 随机揪一个非成型敌方棋子
-        const enemyColor = this.getOpponentColor(color);
-        const formedCells = getAllFormed(this.board);
-        const capturable = getCapturableCells(this.board, enemyColor, formedCells);
-        if (capturable.length > 0) {
-          autoResult = this.capturePiece(openid, capturable[0].r, capturable[0].c);
-        } else {
-          // 无可揪 → 消耗掉揪子次数
-          const myCatchKey = color === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
-          this[myCatchKey] = 0;
-          const opponent = this.getOpponentColor(color);
-          const opponentCatchKey = opponent === BLACK ? 'blackCatchNum' : 'whiteCatchNum';
-          if (this[opponentCatchKey] <= 0) {
-            autoResult = this.enterMoveStage(color);
-          } else {
-            this.currentTurn = opponent;
-            autoResult = { success: true, currentTurn: this.currentTurn };
-          }
-        }
+        // 一次性揪完当前玩家剩余的所有可揪敌方棋子（而非每次只揪 1 个）
+        autoResult = this.autoCaptureAll(color);
         break;
       }
 
@@ -794,8 +831,9 @@ class GameEngine {
       }
     }
 
-    const blackNewScore = Math.max(0, this.blackPlayer.rankScore + blackRatingChange);
-    const whiteNewScore = Math.max(0, this.whitePlayer.rankScore + whiteRatingChange);
+    // 允许积分为负（设计如此：连败可扣到 0 以下），不再钳制下限
+    const blackNewScore = this.blackPlayer.rankScore + blackRatingChange;
+    const whiteNewScore = this.whitePlayer.rankScore + whiteRatingChange;
 
     const settleData = {
       gameId: this.gameId,

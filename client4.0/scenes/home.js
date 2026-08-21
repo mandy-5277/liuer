@@ -697,10 +697,36 @@ function handleEnergyTouch(x, y) {
     return;
   }
   if (hit(rects.shareEnergy, x, y)) {
-    wsManager.send('get_share_reward');
-    wx.showToast({ title: '已获得精力 +5', icon: 'success' });
-    overlay = null;
-    return;
+    // 分享成功后才发放奖励（避免"点分享按钮就加精力"）
+    if (typeof wx.shareAppMessage === 'function') {
+      try {
+        wx.shareAppMessage({
+          title: '【下六儿】快来和我下六儿，赢取积分！',
+          imageUrl: '',
+          success: () => {
+            wsManager.send('get_share_reward');
+            overlay = null;
+            wx.showToast({ title: '已获得精力 +5', icon: 'success' });
+          },
+          fail: () => {
+            wx.showToast({ title: '分享未完成，未发放奖励', icon: 'none' });
+          },
+        });
+        return;
+      } catch (e) {
+        // shareAppMessage 抛错，兜底发放并关闭浮层
+        wsManager.send('get_share_reward');
+        overlay = null;
+        wx.showToast({ title: '已获得精力 +5', icon: 'success' });
+        return;
+      }
+    } else {
+      // 环境不支持分享，直接发放
+      wsManager.send('get_share_reward');
+      overlay = null;
+      wx.showToast({ title: '已获得精力 +5', icon: 'success' });
+      return;
+    }
   }
   if (hit(rects.signEnergy, x, y)) {
     wx.showLoading && wx.showLoading({ title: '签到中', mask: true });

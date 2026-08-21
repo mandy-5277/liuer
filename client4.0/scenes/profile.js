@@ -142,7 +142,7 @@ function onEnter() {
   wsManager.on('error', onSignInError);
   // 重置滚动/设置状态
   pageScroll = 0; pageScrollMax = 0;
-  scrollOffset = 0; scrollMax = 0; dragging = false; dragMode = ''; showSettings = false;
+  scrollOffset = 0; scrollMax = 0; dragging = false; dragMode = ''; showSettings = false; showAvatarPicker = false;
   loadDailyCounts();
   // 拉取历史战绩：一次性拉最近 50 条到本地，默认只显示前 5 条，
   // 这样只要有 5 条以上记录，"查看全部"就能正常出现。
@@ -554,9 +554,16 @@ function onDraw(ctx) {
 
   // 设置弹窗（覆盖在最上层）
   if (showSettings) settingsModal.drawSettingsModal(ctx, rects, {});
+  // 换头像浮层（最上层）
+  if (showAvatarPicker) drawAvatarPickerOverlay(ctx);
 }
 
 function onTouch(x, y) {
+  // 换头像浮层打开时：只处理浮层交互
+  if (showAvatarPicker) {
+    handleAvatarPickerTouch(x, y);
+    return;
+  }
   // 设置弹窗打开时：只处理设置弹窗交互
   if (showSettings) {
     const r = settingsModal.onSettingsTouch(x, y, rects);
@@ -675,58 +682,121 @@ function watchAdForEnergy() {
 
 /**
  * 分享换精力：
- * 小游戏中 wx.shareAppMessage 的 success/fail 回调【不会触发】（微信限制），
- * 因此不能在回调里发奖励，否则奖励请求永不发送。
- * 改为：先同步唤起转发面板（用户点击"发送"即算分享成功），随后直接发奖励请求。
+ * 仅当用户【真正完成分享】（成功回调触发）后才发奖励请求，杜绝"点了分享按钮就加精力"。
+ * - success：分享成功 → 发 get_share_reward 领奖
+ * - fail：用户取消分享 → 不发，提示未完成
+ * - 极端异常（shareAppMessage 抛错/环境不支持）：兜底发放，避免用户永远拿不到（此时用户未经历取消）
  */
 function shareForEnergy() {
+  const grantReward = () => {
+    try { wsManager.send('get_share_reward'); } catch (e) { /* ignore */ }
+  };
   if (typeof wx.shareAppMessage === 'function') {
     try {
       wx.shareAppMessage({
         title: '【下六儿】快来和我下六儿，赢取积分！',
         imageUrl: '',
+        success: () => {
+          // 分享真正成功后才发奖励
+          grantReward();
+        },
+        fail: () => {
+          // 用户取消分享：不发奖励
+          wx.showToast({ title: '分享未完成，未发放奖励', icon: 'none' });
+        },
       });
     } catch (e) {
-      // 极少数环境下 shareAppMessage 抛错，忽略，继续发放奖励
+      // shareAppMessage 抛错（非用户取消），兜底发放
+      grantReward();
     }
   } else {
+    // 环境不支持分享（开发者工具等），直接发放便于联调
     wx.showToast({ title: '当前环境不支持分享，已直接发放', icon: 'none' });
+    grantReward();
   }
-  // 直接发奖励请求（上限由服务端每日计数控制）
-  wsManager.send('get_share_reward');
 }
 
-/** 点击头像：选择预设 emoji 或从相册上传 */
+/**
+ * 换头像浮层状态。
+ * 用 Canvas 浮层实现（而非 wx.showModal / wx.showActionSheet）：
+ * 小游戏对 wx.showModal 的 confirmText/cancelText 及 wx.showActionSheet 兼容性差，
+ * 会导致点击头像后"无反应"。改为在本场景内直接绘制一个预设头像选择浮层。
+ */
+let showAvatarPicker = false;
+
+/** 点击头像：打开换头像浮层 */
 function changeAvatar() {
-  // 小游戏环境不支持 wx.showActionSheet，改用 wx.showModal 选择方式
-  wx.showModal({
-    title: '更换头像',
-    content: '选择更换方式',
-    confirmText: '从相册上传',
-    cancelText: '预设头像',
-    success: (r) => {
-      // 小游戏 wx.showModal 不支持 cancel 点击的 tapIndex 语义：
-      // confirm → 从相册上传；cancel → 预设头像
-      if (r.confirm) uploadAvatar();
-      else choosePresetAvatar();
-    },
+  showAvatarPicker = true;
+}
+
+/** 选择预设 emoji 头像（单个图元，见 AVATAR_PRESETS） */
+function choosePresetAvatar(emoji) {
+  if (!emoji) return;
+  const avatarUrl = 'emoji:' + emoji;
+  const nickName = (state.userInfo && state.userInfo.nickName) || '';
+  saveProfile(nickName, avatarUrl);
+  wsManager.send('update_profile', { nickName, avatarUrl });
+  wx.showToast({ title: '头像已更新', icon: 'success' });
+  showAvatarPicker = false;
+}
+
+/** 全屏压暗背景 */
+function dim(ctx) {
+  ctx.fillStyle = 'rgba(60,47,40,0.5)';
+  ctx.fillRect(0, 0, W, H);
+}
+
+/** 绘制"换头像"浮层（预设头像网格 + 上传相册 + 取消） */
+function drawAvatarPickerOverlay(ctx) {
+  dim(ctx);
+  const pw = W * 0.86, ph = Math.round(H * 0.5), px = (W - pw) / 2, py = (H - ph) / 2;
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 20 });
+
+  drawText(ctx, '更换头像', W / 2, py + 48, { color: PALETTE.text, fontSize: 26, align: 'center', bold: true });
+  drawText(ctx, '选择预设头像（均为单个图像）', W / 2, py + 76, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
+
+  // 预设头像：6 个单图元 emoji，排成 3×2
+  const avatarR = 26;
+  const gap = (pw - 48 - avatarR * 2 * 3) / 2;
+  const startX = px + 24 + avatarR;
+  const rowY = py + 108;
+  rects.presetAvatars = [];
+  AVATAR_PRESETS.forEach((emoji, i) => {
+    const ax = startX + (i % 3) * (avatarR * 2 + gap);
+    const ay = rowY + Math.floor(i / 3) * (avatarR * 2 + 16);
+    const cur = (state.userInfo && state.userInfo.avatarUrl) === ('emoji:' + emoji);
+    ctx.beginPath();
+    ctx.arc(ax, ay, avatarR + 3, 0, Math.PI * 2);
+    ctx.fillStyle = cur ? PALETTE.gold : '#F0E9DB';
+    ctx.fill();
+    drawAvatar(ctx, { x: ax, y: ay, r: avatarR, avatar: 'emoji:' + emoji, label: '' });
+    rects.presetAvatars.push({ x: ax - avatarR - 3, y: ay - avatarR - 3, w: avatarR * 2 + 6, h: avatarR * 2 + 6, emoji });
+  });
+
+  // 上传相册 / 取消
+  rects.avatarUploadBtn = drawButton(ctx, {
+    text: '📷 从相册上传', x: px + 40, y: py + ph - 108, w: pw - 80, h: 44,
+    fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 18,
+  });
+  rects.avatarCancelBtn = drawButton(ctx, {
+    text: '取消', x: px + 40, y: py + ph - 54, w: pw - 80, h: 40,
+    fill: PALETTE.panel, textColor: PALETTE.textDim, fontSize: 16, border: PALETTE.panelBorder,
   });
 }
 
-/** 选择预设 emoji 头像 */
-function choosePresetAvatar() {
-  wx.showActionSheet({
-    itemList: AVATAR_PRESETS,
-    success: (res) => {
-      const emoji = AVATAR_PRESETS[res.tapIndex];
-      if (!emoji) return;
-      const avatarUrl = 'emoji:' + emoji;
-      const nickName = (state.userInfo && state.userInfo.nickName) || '';
-      saveProfile(nickName, avatarUrl);
-      wsManager.send('update_profile', { nickName, avatarUrl });
-      wx.showToast({ title: '头像已更新', icon: 'success' });
-    },
-  });
+/** 换头像浮层触摸处理，返回 true 表示已消费该触摸 */
+function handleAvatarPickerTouch(x, y) {
+  if (rects.presetAvatars) {
+    for (let i = 0; i < rects.presetAvatars.length; i++) {
+      if (hit(rects.presetAvatars[i], x, y)) {
+        choosePresetAvatar(rects.presetAvatars[i].emoji);
+        return true;
+      }
+    }
+  }
+  if (hit(rects.avatarUploadBtn, x, y)) { uploadAvatar(); return true; }
+  if (hit(rects.avatarCancelBtn, x, y)) { showAvatarPicker = false; return true; }
+  return false;
 }
 
 /** 选择相册图片并上传，成功后作为头像（小游戏用 wx.chooseMedia） */
@@ -758,6 +828,7 @@ function uploadAvatar() {
                 saveProfile(nickName, avatarUrl);
                 wsManager.send('update_profile', { nickName, avatarUrl });
                 wx.showToast({ title: '头像已更新', icon: 'success' });
+                showAvatarPicker = false;
               } else {
                 wx.showToast({ title: '上传失败', icon: 'none' });
               }

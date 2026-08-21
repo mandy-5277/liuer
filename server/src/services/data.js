@@ -66,11 +66,9 @@ async function ensureDailyReset(openid) {
 async function recoverEnergy(openid, energy, energyRecoverAt) {
   const max = gameConfig.energyMax || 30;
   const intervalMs = (gameConfig.energyRecoverMinutes || 5) * 60 * 1000;
-  // 修复历史异常数据：精力不得超过上限
-  if (energy > max) {
-    energy = max;
-    await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [energy, openid]);
-  }
+  // 允许精力囤积超过上限（主动获得：看广告/分享/签到可超过 max 累加）。
+  // 因此这里【不做】"energy > max 则砍回 max"的处理，
+  // 否则用户在 35/30 下线后下次上线会被重置成 30/30，丢失囤积的精力。
   if (energy >= max) {
     if (energyRecoverAt !== 0) {
       await pool.query('UPDATE users SET energyRecoverAt = 0 WHERE openid = ?', [openid]);

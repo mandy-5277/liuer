@@ -459,10 +459,21 @@ function autoTimeoutSmart(gameId, engine, color, openid) {
         opResult = engine.placePiece(openid, decision.action.r, decision.action.c);
         break;
       case 'capture':
-        opResult = engine.capturePiece(openid, decision.action.r, decision.action.c);
+        // 揪子阶段：一次性揪完剩余所有可揪敌方棋子（修复超时只揪 1 个被跳过的 bug）
+        // 走子阶段：保持联动揪（linked_capture），一次只能联动揪 1 个
+        if (engine.stage === Stage.CAPTURING) {
+          opResult = engine.autoCaptureAll(color);
+        } else {
+          opResult = engine.linkedCapturePiece(openid, decision.action.r, decision.action.c);
+        }
         break;
       case 'skip_capture':
-        opResult = engine.skipLinkedCapture(openid);
+        // 揪子阶段跳过：交给 autoCaptureAll 处理"无可揪则跳过并推进"
+        if (engine.stage === Stage.CAPTURING) {
+          opResult = engine.autoCaptureAll(color);
+        } else {
+          opResult = engine.skipLinkedCapture(openid);
+        }
         break;
       case 'move':
         opResult = engine.movePiece(openid, decision.action.fromR, decision.action.fromC, decision.action.toR, decision.action.toC);
