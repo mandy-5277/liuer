@@ -41,12 +41,14 @@ async function ensureEnergySchema() {
  * 若 lastDailyReset 不是今天，则清零 dailyAdCount / dailyShareCount / dailyCopper。
  */
 async function ensureDailyReset(openid) {
-  const [rows] = await pool.query('SELECT lastDailyReset, dailyAdCount, dailyShareCount, dailyCopper FROM users WHERE openid = ?', [openid]);
-  if (rows.length === 0) return { success: false, reason: 'user_not_found' };
-  const u = rows[0];
+  const [[last]] = await pool.query(
+    'SELECT DATE_FORMAT(lastDailyReset, "%Y-%m-%d") AS d, dailyAdCount, dailyShareCount, dailyCopper FROM users WHERE openid = ?',
+    [openid]
+  );
+  if (!last) return { success: false, reason: 'user_not_found' };
   const today = todayCNStr();
-  if (u.lastDailyReset === today) {
-    return { success: true, adCount: u.dailyAdCount || 0, shareCount: u.dailyShareCount || 0 };
+  if (last.d === today) {
+    return { success: true, adCount: last.dailyAdCount || 0, shareCount: last.dailyShareCount || 0 };
   }
   // 跨天：重置次数
   await pool.query(
@@ -64,6 +66,11 @@ async function ensureDailyReset(openid) {
 async function recoverEnergy(openid, energy, energyRecoverAt) {
   const max = gameConfig.energyMax || 30;
   const intervalMs = (gameConfig.energyRecoverMinutes || 5) * 60 * 1000;
+  // 修复历史异常数据：精力不得超过上限
+  if (energy > max) {
+    energy = max;
+    await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [energy, openid]);
+  }
   if (energy >= max) {
     if (energyRecoverAt !== 0) {
       await pool.query('UPDATE users SET energyRecoverAt = 0 WHERE openid = ?', [openid]);
@@ -87,8 +94,10 @@ async function recoverEnergy(openid, energy, energyRecoverAt) {
     newEnergy = max;
   } else {
     // 剩余时间折算到下个恢复点
+    // recovered 已包含"当前待恢复点"这 1 点，其消耗的额外时间为 0；
+    // 其余 (recovered-1) 点各自消耗一个 intervalMs。
     const elapsed = now - energyRecoverAt;
-    const used = recovered * intervalMs;
+    const used = (recovered - 1) * intervalMs;
     newRecoverAt = now + (intervalMs - (elapsed - used));
   }
   await pool.query('UPDATE users SET energy = ?, energyRecoverAt = ? WHERE openid = ?', [newEnergy, newRecoverAt, openid]);
@@ -100,6 +109,7 @@ async function getOrCreateUser(openid, userInfo = {}) {
   if (rows.length > 0) {
     const u = rows[0];
     const rec = await recoverEnergy(openid, u.energy, u.energyRecoverAt || 0);
+    const isBot = (u.openid || '').startsWith((gameConfig.robot && gameConfig.robot.prefix) || 'bot_');
     return {
       openid: u.openid,
       unionid: u.unionid,
@@ -111,19 +121,26 @@ async function getOrCreateUser(openid, userInfo = {}) {
       energyRecoverAt: rec.energyRecoverAt,
       lastCheckin: u.lastCheckin,
       lastDailyReset: u.lastDailyReset,
+      dailyAdCount: u.dailyAdCount || 0,
+      dailyShareCount: u.dailyShareCount || 0,
       winCount: u.winCount,
       loseCount: u.loseCount,
       drawCount: u.drawCount,
+      winRate: ((u.winCount || 0) + (u.loseCount || 0) + (u.drawCount || 0)) > 0
+        ? Math.round((u.winCount || 0) * 1000 / ((u.winCount || 0) + (u.loseCount || 0) + (u.drawCount || 0))) / 10
+        : 0,
       settings: u.settings ? (typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings) : {},
       createTime: u.createTime,
+      isBot,
     };
   }
 
   const nickName = userInfo.nickName || '';
   const avatarUrl = userInfo.avatarUrl || '';
   const unionid = userInfo.unionid || null;
-  const rankScore = 1000;
+  const rankScore = 0;
   const rankName = '初级小六';
+  const isBot = (openid || '').startsWith((gameConfig.robot && gameConfig.robot.prefix) || 'bot_');
 
   await pool.query(
     `INSERT INTO users (openid, unionid, nickName, avatarUrl, rankScore, rankName)
@@ -147,6 +164,7 @@ async function getOrCreateUser(openid, userInfo = {}) {
     drawCount: 0,
     settings: {},
     createTime: new Date(),
+    isBot,
   };
 }
 
@@ -155,6 +173,7 @@ async function findByOpenid(openid) {
   if (rows.length === 0) return null;
   const u = rows[0];
   const rec = await recoverEnergy(openid, u.energy, u.energyRecoverAt || 0);
+  const isBot = (u.openid || '').startsWith((gameConfig.robot && gameConfig.robot.prefix) || 'bot_');
   return {
     openid: u.openid,
     unionid: u.unionid,
@@ -166,12 +185,67 @@ async function findByOpenid(openid) {
     energyRecoverAt: rec.energyRecoverAt,
     lastCheckin: u.lastCheckin,
     lastDailyReset: u.lastDailyReset,
+    dailyAdCount: u.dailyAdCount || 0,
+    dailyShareCount: u.dailyShareCount || 0,
     winCount: u.winCount,
     loseCount: u.loseCount,
     drawCount: u.drawCount,
+    winRate: ((u.winCount || 0) + (u.loseCount || 0) + (u.drawCount || 0)) > 0
+      ? Math.round((u.winCount || 0) * 1000 / ((u.winCount || 0) + (u.loseCount || 0) + (u.drawCount || 0))) / 10
+      : 0,
     settings: u.settings ? (typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings) : {},
     createTime: u.createTime,
+    isBot,
   };
+}
+
+/**
+ * 创建机器人用户（具备积分/胜率/排行，无精力系统）。
+ * 机器人 ID 以配置前缀开头，随机昵称与头像，初始积分为 1000。
+ * @returns {{ openid, nickName, avatarUrl, rankScore, rankName, isBot }}
+ */
+async function createBotUser() {
+  const cfg = gameConfig.robot || {};
+  const prefix = cfg.prefix || 'bot_';
+  const nickNames = cfg.nickNames || ['机器人'];
+  const avatarUrls = cfg.avatarUrls || [''];
+
+  const openid = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const nickName = nickNames[Math.floor(Math.random() * nickNames.length)];
+  const avatarUrl = avatarUrls[Math.floor(Math.random() * avatarUrls.length)] || '';
+  const rankScore = 0;
+  const rankName = '初级小六';
+
+  await pool.query(
+    `INSERT INTO users (openid, unionid, nickName, avatarUrl, rankScore, rankName)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [openid, null, nickName, avatarUrl, rankScore, rankName]
+  );
+
+  return {
+    openid,
+    nickName,
+    avatarUrl,
+    rankScore,
+    rankName,
+    energy: 30,            // 满精力占位（机器人不参与精力消耗）
+    energyRecoverAt: 0,
+    winCount: 0,
+    loseCount: 0,
+    drawCount: 0,
+    settings: {},
+    isBot: true,
+  };
+}
+
+/**
+ * 判断某 openid 是否为机器人
+ */
+async function isBotUser(openid) {
+  if (!openid) return false;
+  if (openid.startsWith((gameConfig.robot && gameConfig.robot.prefix) || 'bot_')) return true;
+  const u = await findByOpenid(openid);
+  return !!(u && u.isBot);
 }
 
 async function updateUser(openid, updates) {
@@ -195,10 +269,26 @@ async function getUserGames(openid, limit = 20, skip = 0) {
      ORDER BY createTime DESC LIMIT ? OFFSET ?`,
     [openid, openid, limit, skip]
   );
+  // 批量关联对手昵称（用于历史战绩展示）
+  const ids = new Set();
+  rows.forEach((g) => { ids.add(g.blackOpenid); ids.add(g.whiteOpenid); });
+  let nickMap = {};
+  if (ids.size > 0) {
+    const idArr = Array.from(ids);
+    // 直接用数组作为 IN 的参数（mysql2 会自动展开为 ?,?,... 占位符）
+    const [us] = await pool.query(
+      'SELECT openid, nickName FROM users WHERE openid IN (?)',
+      [idArr]
+    );
+    nickMap = {};
+    us.forEach((u) => { nickMap[u.openid] = u.nickName || ''; });
+  }
   return rows.map((g) => ({
     gameId: g.gameId,
     blackOpenid: g.blackOpenid,
     whiteOpenid: g.whiteOpenid,
+    blackNickName: nickMap[g.blackOpenid] || '',
+    whiteNickName: nickMap[g.whiteOpenid] || '',
     mode: g.mode,
     result: g.result,
     endReason: g.endReason,
@@ -356,8 +446,11 @@ async function checkin(openid, today) {
   const nowCN = new Date(Date.now() + 8 * 3600 * 1000);
   const dayOfWeek = nowCN.getDay(); // 0=周日, 6=周六
   const bonus = (dayOfWeek === 0 || dayOfWeek === 6) ? 10 : 5;
-  await pool.query('UPDATE users SET lastCheckin = ? WHERE openid = ?', [todayStr, openid]);
-  return { success: true, energy: u.energy, bonus };
+  // 签到同时立即加精力并写入签到日期（避免 addEnergy 再读一次导致竞态）
+  const newEnergy = Math.min((u.energy || 0) + bonus, 9999);
+  await pool.query('UPDATE users SET lastCheckin = ?, energy = ? WHERE openid = ?', [todayStr, newEnergy, openid]);
+  const recoverAt = await resetRecoverAt(openid, newEnergy);
+  return { success: true, energy: newEnergy, bonus, energyRecoverAt: recoverAt };
 }
 
 // 扣减/增加精力后，重置下次自然恢复的时间戳
@@ -383,9 +476,9 @@ async function deductEnergy(openid, amount) {
 async function addEnergy(openid, amount) {
   const [rows] = await pool.query('SELECT energy FROM users WHERE openid = ?', [openid]);
   if (rows.length === 0) return { success: false, reason: 'user_not_found' };
-  // 主动获得精力（看广告/分享/签到）可超过上限（energyMax=30），
-  // 仅自然恢复（recoverEnergy）受上限约束。
-  const newEnergy = rows[0].energy + amount;
+  // 主动获得精力（看广告/分享/签到）允许超过上限（可囤积），仅用硬上限防止溢出
+  const HARD_CAP = 9999;
+  const newEnergy = Math.min(rows[0].energy + amount, HARD_CAP);
   await pool.query('UPDATE users SET energy = ? WHERE openid = ?', [newEnergy, openid]);
   const recoverAt = await resetRecoverAt(openid, newEnergy);
   return { success: true, energy: newEnergy, energyRecoverAt: recoverAt };
@@ -584,6 +677,8 @@ module.exports = {
   ensureDailyReset,
   incrementAdCount,
   incrementShareCount,
+  createBotUser,
+  isBotUser,
   // 对局
   createGameRecord,
   updateGameRecord,
@@ -632,6 +727,8 @@ module.exports = {
     ensureDailyReset,
     incrementAdCount,
     incrementShareCount,
+    createBotUser,
+    isBotUser,
   },
   gameRecordService: {
     createGameRecord,

@@ -16,6 +16,7 @@
 
 const { state, init } = require('./state');
 const { wsManager } = require('./utils/websocket');
+const audio = require('./utils/audio');
 const sceneMgr = require('./scenes/index');
 
 // 注册场景
@@ -28,6 +29,8 @@ sceneMgr.register('match', require('./scenes/match'));
 // 主画布上下文
 let ctx = null;
 let canvas = null;
+let logicalW = 0;   // 逻辑宽（windowWidth）
+let logicalH = 0;   // 逻辑高（windowHeight）
 
 function main() {
   // 0. 读取启动参数（分享卡片带 room 可自动进房）
@@ -58,11 +61,16 @@ function main() {
   canvas = wx.createCanvas();
   ctx = canvas.getContext('2d');
 
-  // 适配高清屏（逻辑像素 = 物理像素 / dpr，这里直接用逻辑尺寸即可，
-  // 因为 wx.getSystemInfoSync().windowWidth 已是逻辑像素）
+  // 高清屏适配（关键：让画布按物理像素渲染，避免文字/图形模糊）
+  // - canvas.width/height = 物理像素（逻辑像素 × devicePixelRatio）
+  // - ctx.scale(dpr, dpr) 使后续绘制仍按逻辑坐标，但以物理分辨率输出
   const info = wx.getSystemInfoSync();
-  canvas.width = info.windowWidth;
-  canvas.height = info.windowHeight;
+  const dpr = info.pixelRatio || (info.devicePixelRatio || 1);
+  logicalW = info.windowWidth;
+  logicalH = info.windowHeight;
+  canvas.width = logicalW * dpr;
+  canvas.height = logicalH * dpr;
+  ctx.scale(dpr, dpr);
 
   // 3. 进入首页
   sceneMgr.goto('home');
@@ -75,7 +83,21 @@ function main() {
     if (!t) return;
     const x = (t.x !== undefined) ? t.x : t.clientX;
     const y = (t.y !== undefined) ? t.y : t.clientY;
+    // 首次交互后启动背景音乐（小游戏要求用户手势后才能播放音频）
+    audio.startBgm();
     sceneMgr.touch(x, y);
+  });
+
+  wx.onTouchMove((e) => {
+    const t = e.touches[0];
+    if (!t) return;
+    const x = (t.x !== undefined) ? t.x : t.clientX;
+    const y = (t.y !== undefined) ? t.y : t.clientY;
+    sceneMgr.touchMove(x, y);
+  });
+
+  wx.onTouchEnd((e) => {
+    sceneMgr.touchEnd();
   });
 
   // 5. 主循环（各场景已在 onEnter 中自行注册 WS 监听）
@@ -84,7 +106,8 @@ function main() {
 
 function loop() {
   if (!ctx) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // 清除按逻辑尺寸（context 已 scale，画布物理尺寸在 canvas.width/height）
+  ctx.clearRect(0, 0, logicalW, logicalH);
   sceneMgr.draw(ctx);
   requestAnimationFrame(loop);
 }

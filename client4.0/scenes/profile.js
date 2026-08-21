@@ -9,6 +9,8 @@ const { state, saveProfile, AVATAR_PRESETS } = require('../state');
 const { wsManager } = require('../utils/websocket');
 const { PALETTE, drawText, drawCard, drawAvatar, hit, drawButton, roundRect, drawBottomNav, FONT_FAMILY } = require('../utils/ui');
 const { SERVER_BASE, AD_UNIT_ID, AD_REWARD_DAILY, SHARE_REWARD_DAILY } = require('../config');
+const audio = require('../utils/audio');
+const settingsModal = require('../utils/settings-modal');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -19,10 +21,27 @@ let checkedInToday = false;
 let dailyAdCount = 0;
 let dailyShareCount = 0;
 let rewardedVideoAd = null; // 激励视频广告实例（复用）
+let myHistory = [];         // 历史战绩（服务端返回）
+let historyLoadedAll = false; // 是否已加载最近 50 条（查看全部）
+// 页面滚动（整页内容上下滚动）
+let pageScroll = 0;           // 当前页面滚动偏移
+let pageScrollMax = 0;        // 页面最大可滚动距离
+// 历史战绩内部滚动（展开 50 条时用）
+let scrollOffset = 0;
+let scrollMax = 0;
+let dragStartY = 0;           // 拖动起始 Y
+let dragStartPageScroll = 0;  // 拖动起始时页面滚动
+let dragStartScroll = 0;      // 拖动起始时历史滚动
+let dragging = false;         // 是否正在拖动
+let dragMode = '';            // 'page' 整页 | 'history' 历史内部
+let showSettings = false;     // 是否显示"设置"弹窗
 
 const WEEK = ['一', '二', '三', '四', '五', '六', '日'];
 
-/** 读取/校验本地每日次数缓存（跨天自动清零） */
+/**
+ * 读取本地每日次数缓存作为初始/降级值（跨天自动清零）。
+ * 权威值来自服务端 login_success / reward 结果，会在后续由 state 同步覆盖。
+ */
 function loadDailyCounts() {
   const today = todayStr();
   let cache = {};
@@ -31,8 +50,12 @@ function loadDailyCounts() {
     cache = { date: today, adCount: 0, shareCount: 0 };
     try { wx.setStorageSync('dailyReward', cache); } catch (e) { /* ignore */ }
   }
-  dailyAdCount = cache.adCount || 0;
-  dailyShareCount = cache.shareCount || 0;
+  // 以服务端权威值为准（登录时已同步到 state.dailyAdCount / dailyShareCount）。
+  // 注意：已用次数可能为 0（今天还没用过 / 跨天已恢复），0 是合法值，不能用假值判断回退本地缓存，
+  // 否则会回退到旧缓存中"昨天用完"的次数，导致今天仍显示"已用完"。
+  // 仅当服务端未下发（undefined）时才用本地缓存降级。
+  dailyAdCount = (state.dailyAdCount !== undefined) ? state.dailyAdCount : (cache.adCount || 0);
+  dailyShareCount = (state.dailyShareCount !== undefined) ? state.dailyShareCount : (cache.shareCount || 0);
 }
 
 /** 增加本地每日次数并持久化 */
@@ -62,14 +85,75 @@ function onResourceUpdate(data) {
   if (data.winRate !== undefined) state.winRate = data.winRate;
 }
 
+// 登录成功后用服务端权威每日次数同步本地显示变量，登录即决定按钮是否可点
+function onLoginSuccess(data) {
+  if (data && data.dailyAdCount !== undefined) {
+    dailyAdCount = data.dailyAdCount;
+    state.dailyAdCount = data.dailyAdCount;
+    // 同步本地缓存，保证跨天恢复后缓存也是正确值
+    try {
+      const c = wx.getStorageSync('dailyReward') || {};
+      c.date = todayStr();
+      c.adCount = data.dailyAdCount;
+      wx.setStorageSync('dailyReward', c);
+    } catch (e) { /* ignore */ }
+  }
+  if (data && data.dailyShareCount !== undefined) {
+    dailyShareCount = data.dailyShareCount;
+    state.dailyShareCount = data.dailyShareCount;
+    try {
+      const c = wx.getStorageSync('dailyReward') || {};
+      c.date = todayStr();
+      c.shareCount = data.dailyShareCount;
+      wx.setStorageSync('dailyReward', c);
+    } catch (e) { /* ignore */ }
+  }
+}
+
+// 历史战绩返回
+function onHistory(data) {
+  const list = (data && data.games) || [];
+  myHistory = list.map((g) => {
+    const isBlack = g.blackOpenid === state.openid;
+    const myResult = g.result === 'black' ? (isBlack ? 'win' : 'lose')
+      : g.result === 'white' ? (isBlack ? 'lose' : 'win')
+      : 'draw';
+    const opponent = isBlack ? g.whiteOpenid : g.blackOpenid;
+    const oppName = isBlack ? g.whiteNickName : g.blackNickName;
+    return {
+      result: myResult,
+      opponent,
+      // 优先真实昵称；为空时显示"对手"，不再截取 openid（避免出现 o0oDP5 这种乱码）
+      opponentName: (oppName && oppName.trim()) ? oppName : '对手',
+      // 以结算结束时间为准（endTime），fallback 到 createTime
+      endTime: g.endTime || g.createTime,
+      createTime: g.createTime,
+    };
+  });
+}
+
 function onEnter() {
   wsManager.on('resource_update', onResourceUpdate);
+  wsManager.on('login_success', onLoginSuccess);
   wsManager.on('sign_in_result', onSignInResult);
   wsManager.on('ad_reward_result', onAdRewardResult);
   wsManager.on('share_reward_result', onShareRewardResult);
+  wsManager.on('history', onHistory);
   wsManager.on('error', onSignInError);
+  // 重置滚动/设置状态
+  pageScroll = 0; pageScrollMax = 0;
+  scrollOffset = 0; scrollMax = 0; dragging = false; dragMode = ''; showSettings = false;
   loadDailyCounts();
-  try { checkedInToday = wx.getStorageSync('lastSignin') === todayStr(); } catch (e) { checkedInToday = false; }
+  // 拉取历史战绩：一次性拉最近 50 条到本地，默认只显示前 5 条，
+  // 这样只要有 5 条以上记录，"查看全部"就能正常出现。
+  try { wsManager.send('get_history', { limit: 50 }); } catch (e) { /* ignore */ }
+  // 签到状态优先以服务端为准（state.lastCheckin），本地缓存仅作降级
+  const localSignin = (() => { try { return wx.getStorageSync('lastSignin'); } catch (e) { return ''; } })();
+  const serverCheckin = state.lastCheckin ? state.lastCheckin.slice(0, 10) : '';
+  checkedInToday = serverCheckin === todayStr() || localSignin === todayStr();
+  // 当服务端已经返回精力（login_success 已先执行）时，若本地仍显示默认值/旧值，立即以服务端为准刷新
+
+
 }
 
 function onSignInResult(data) {
@@ -77,20 +161,33 @@ function onSignInResult(data) {
   try { wx.setStorageSync('lastSignin', todayStr()); } catch (e) { /* ignore */ }
   // 服务端已返回最新精力，立即更新显示，避免依赖 resource_update 时序
   if (data && data.energy !== undefined) state.energy.current = data.energy;
+  if (data && data.energyRecoverAt !== undefined) state.energy.nextRecoverAt = data.energyRecoverAt;
   const reward = data && data.bonus ? data.bonus : ((new Date().getDay() % 6 === 0) ? 10 : 5);
   wx.showToast({ title: '签到成功 +' + reward + '精力', icon: 'success' });
 }
 
 function onAdRewardResult(data) {
   if (data && data.energy !== undefined) state.energy.current = data.energy;
-  bumpDailyCount('ad');
+  // 以服务端返回的权威已用次数为准
+  if (data && data.adCount !== undefined) {
+    dailyAdCount = data.adCount;
+    state.dailyAdCount = data.adCount;
+  } else {
+    bumpDailyCount('ad');
+  }
   wx.hideLoading && wx.hideLoading();
   wx.showToast({ title: '精力 +' + (data && data.reward ? data.reward : 10), icon: 'success' });
 }
 
 function onShareRewardResult(data) {
   if (data && data.energy !== undefined) state.energy.current = data.energy;
-  bumpDailyCount('share');
+  // 以服务端返回的权威已用次数为准
+  if (data && data.shareCount !== undefined) {
+    dailyShareCount = data.shareCount;
+    state.dailyShareCount = data.shareCount;
+  } else {
+    bumpDailyCount('share');
+  }
   wx.showToast({ title: '精力 +' + (data && data.reward ? data.reward : 5), icon: 'success' });
 }
 
@@ -107,12 +204,14 @@ function onSignInError(data) {
   // 次数用尽：置满本地计数，让按钮变灰
   if (msg.indexOf('看视频') >= 0) {
     dailyAdCount = AD_REWARD_DAILY;
+    state.dailyAdCount = AD_REWARD_DAILY;
     try { wx.setStorageSync('dailyReward', { date: todayStr(), adCount: dailyAdCount, shareCount: dailyShareCount }); } catch (e) { /* ignore */ }
     wx.showToast({ title: msg, icon: 'none' });
     return;
   }
   if (msg.indexOf('分享') >= 0) {
     dailyShareCount = SHARE_REWARD_DAILY;
+    state.dailyShareCount = SHARE_REWARD_DAILY;
     try { wx.setStorageSync('dailyReward', { date: todayStr(), adCount: dailyAdCount, shareCount: dailyShareCount }); } catch (e) { /* ignore */ }
     wx.showToast({ title: msg, icon: 'none' });
     return;
@@ -138,44 +237,66 @@ function drawHeader(ctx) {
 
   const cy = sbh + 84;
 
-  // 左列：头像 + 昵称（限 6 字不换行）+ 段位徽章
-  const leftW = Math.round(W * 0.58); // 左列占 58%，给右侧统计留位
-  rects.avatarHit = { x: 10, y: cy - 40, w: 60, h: 80 };
+  // 右列：积分 / 胜率 / 场次 + 齿轮，共用一个横向空间
+  const totalGames = (state.wins || 0) + (state.losses || 0) + (state.draws || 0);
+  const stats = [
+    { num: '' + (state.rankScore || 0), label: '积分' },
+    { num: (Number(state.winRate) || 0).toFixed(1) + '%', label: '胜率' },
+    { num: '' + totalGames, label: '场次' },
+  ];
+  // 左列：头像 + 昵称 + 段位徽章（占 52%）
+  const leftW = Math.round(W * 0.52);
+  // 右侧预留：齿轮按钮 34px + 间距 8px 放最右，统计区在其左侧
+  const rightReserve = 34 + 8;
+  const rightW = W - leftW - rightReserve;          // 统计区宽
+  const statsStartX = leftW;
+
+  // 头像 + 昵称（缩小字号）+ 段位徽章
+  rects.avatarHit = { x: 10, y: cy - 38, w: 56, h: 76 };
   drawAvatar(ctx, {
-    x: 40, y: cy, r: 30,
+    x: 38, y: cy, r: 27,
     label: ((state.userInfo && state.userInfo.nickName) || '玩').slice(0, 1),
     avatar: (state.userInfo && state.userInfo.avatarUrl) || '', ring: true,
   });
   const nickRaw = (state.userInfo && state.userInfo.nickName) || '玩家';
-  const nick = nickRaw.slice(0, 6); // 限制昵称最多 6 个汉字（按显示宽度截断）
-  const nickX = 82;
-  rects.nickHit = { x: nickX - 4, y: cy - 34, w: 120, h: 30 };
-  drawText(ctx, nick, nickX, cy - 14, { color: '#FFFFFF', fontSize: 22, bold: true });
-  // 小铅笔提示，暗示可点击编辑
-  drawText(ctx, '✎', nickX + ctx.measureText(nick).width + 10, cy - 14, { color: 'rgba(255,255,255,0.55)', fontSize: 14, baseline: 'middle' });
+  const nick = nickRaw.slice(0, 5); // 限 5 字
+  const nickX = 74;
+  rects.nickHit = { x: nickX - 4, y: cy - 30, w: 110, h: 28 };
+  drawText(ctx, nick, nickX, cy - 14, { color: '#FFFFFF', fontSize: 18, bold: true });
+  // 小铅笔提示
+  drawText(ctx, '✎', nickX + ctx.measureText(nick).width + 6, cy - 14, { color: 'rgba(255,255,255,0.55)', fontSize: 12, baseline: 'middle' });
   const badgeX = nickX, badgeY = cy + 12;
   const badgeText = (state.rankName || '初级小六');
-  const badgeW = Math.max(96, badgeText.length * 12 + 24);
-  roundRect(ctx, badgeX, badgeY, badgeW, 24, 12);
+  const badgeW = Math.max(88, badgeText.length * 11 + 20);
+  roundRect(ctx, badgeX, badgeY, badgeW, 22, 11);
   ctx.fillStyle = 'rgba(212,168,67,0.22)';
   ctx.fill();
-  drawText(ctx, '🏅 ' + badgeText, badgeX + badgeW / 2, badgeY + 12, { color: '#D4A843', fontSize: 13, align: 'center', baseline: 'middle', bold: true });
+  drawText(ctx, '🏅 ' + badgeText, badgeX + badgeW / 2, badgeY + 11, { color: '#D4A843', fontSize: 12, align: 'center', baseline: 'middle', bold: true });
 
-  // 右列：积分 / 胜率 / 场次（紧凑三组，固定宽，互不重叠）
-  const totalGames = (state.wins || 0) + (state.losses || 0) + (state.draws || 0);
-  const stats = [
-    { num: '' + (state.rankScore || 0), label: '积分' },
-    { num: (state.winRate || 0) + '%', label: '胜率' },
-    { num: '' + totalGames, label: '场次' },
-  ];
-  const rightX = leftW;             // 右列起始 x
-  const rightW = W - rightX;        // 右列宽
+  // 统计区（字号缩小，互不重叠）
   const itemW = Math.floor(rightW / stats.length);
   stats.forEach((s, i) => {
-    const cx = rightX + i * itemW + itemW / 2;
-    drawText(ctx, s.num, cx, cy - 14, { color: '#FFFFFF', fontSize: 20, align: 'center', bold: true });
-    drawText(ctx, s.label, cx, cy + 14, { color: 'rgba(255,255,255,0.6)', fontSize: 12, align: 'center' });
+    const cx = statsStartX + i * itemW + itemW / 2;
+    drawText(ctx, s.num, cx, cy - 14, { color: '#FFFFFF', fontSize: 15, align: 'center', bold: true });
+    drawText(ctx, s.label, cx, cy + 13, { color: 'rgba(255,255,255,0.6)', fontSize: 10, align: 'center' });
   });
+
+  // 设置（齿轮）入口：只保留齿轮图标（无框无底），放大，放最右侧 cy 水平居中
+  const gearIconSize = 30;                       // 齿轮放大
+  const gearX = W - 8 - gearIconSize / 2;        // 图标中心 x
+  const gearY = cy;                              // 图标中心 y（与统计数字同水平）
+  const gearHitPad = 6;                          // 命中区比图标略大，便于点按
+  rects.settingsBtn = {
+    x: gearX - gearIconSize / 2 - gearHitPad,
+    y: gearY - gearIconSize / 2 - gearHitPad,
+    w: gearIconSize + gearHitPad * 2,
+    h: gearIconSize + gearHitPad * 2,
+  };
+  ctx.font = `${gearIconSize}px ${FONT_FAMILY}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText('⚙', gearX, gearY);
 }
 
 function drawEnergyCard(ctx, topY) {
@@ -209,19 +330,19 @@ function drawEnergyCard(ctx, topY) {
   const btnW = (cardW - 32 - btnGap) / 2;
   const adUsedUp = dailyAdCount >= AD_REWARD_DAILY;
   const shareUsedUp = dailyShareCount >= SHARE_REWARD_DAILY;
-  const adText = adUsedUp ? '🎬 看视频已用完' : ('🎬 看视频 +10 (' + (AD_REWARD_DAILY - dailyAdCount) + ')');
-  const shareText = shareUsedUp ? '📤 分享已用完' : ('📤 分享 +5 (' + (SHARE_REWARD_DAILY - dailyShareCount) + ')');
+  const adText = adUsedUp ? '看视频已用完' : '🎬 看视频 +10';
+  const shareText = shareUsedUp ? '分享已用完' : '📤 分享 +5';
   rects.adEnergy = drawButton(ctx, {
     text: adText, x: cardX + 16, y: btnY, w: btnW, h: btnH,
     fill: adUsedUp ? '#EDE7DB' : PALETTE.panel,
     textColor: adUsedUp ? '#B9AFA0' : PALETTE.gold,
-    fontSize: 13, border: adUsedUp ? '#E3DCCE' : PALETTE.goldBright,
+    fontSize: 14, border: adUsedUp ? '#E3DCCE' : PALETTE.goldBright,
   });
   rects.shareEnergy = drawButton(ctx, {
     text: shareText, x: cardX + 16 + btnW + btnGap, y: btnY, w: btnW, h: btnH,
     fill: shareUsedUp ? '#EDE7DB' : PALETTE.panel,
     textColor: shareUsedUp ? '#B9AFA0' : PALETTE.green,
-    fontSize: 13, border: shareUsedUp ? '#E3DCCE' : PALETTE.green,
+    fontSize: 14, border: shareUsedUp ? '#E3DCCE' : PALETTE.green,
   });
   // 小字说明（含剩余次数）
   drawText(ctx, '看视频 +10（剩' + (AD_REWARD_DAILY - dailyAdCount) + '次）· 分享 +5（剩' + (SHARE_REWARD_DAILY - dailyShareCount) + '次）', cardX + 16, topY + cardH - 10, {
@@ -276,17 +397,117 @@ function drawSignInCard(ctx, topY) {
 }
 
 function drawHistory(ctx, topY) {
-  const cardX = 16, cardW = W - 32, cardH = 60;
+  const cardX = 16, cardW = W - 32;
+  const pad = 14;                 // 卡片内边距（对齐 figma）
+  const titleH = 14 + 8;         // 标题行高 + 下边距
+  const rowH = 32 + 16;          // 每条 头像32 + 上下 padding 8*2
+  const show = (myHistory || []);
+  const displayCount = historyLoadedAll ? Math.min(show.length, 50) : Math.min(show.length, 5);
+  const hasMore = show.length > 5;
+  // 内部"查看全部/收起"按钮区域：按 figma 风格做成带边框的圆角行（卡片内底部）
+  const viewAllH = hasMore ? 40 : 0;
+  const viewAllGap = hasMore ? 8 : 0; // 行底与按钮之间的间距
+
+  // 卡片高度 = 内边距 + 标题 + 行 + 查看全部区 + 内边距
+  const contentH = pad + titleH + displayCount * rowH + viewAllGap + viewAllH + pad;
+  const cardH = Math.max(180, contentH);
+  scrollMax = 0;
+
+  ctx.save();
+  rects.historyCard = { x: cardX, y: topY, w: cardW, h: cardH };
+  roundRect(ctx, cardX, topY, cardW, cardH, 14);
+  ctx.clip();
+
   drawCard(ctx, { x: cardX, y: topY, w: cardW, h: cardH, radius: 14 });
-  drawText(ctx, '历史战绩', cardX + 16, topY + 20, { color: PALETTE.text, fontSize: 16, bold: true });
-  // 空态占位
-  drawText(ctx, '暂无对局记录，快去下六儿来一局吧', W / 2, topY + 42, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
+
+  if (show.length === 0) {
+    drawText(ctx, '暂无对局记录，快去下六儿来一局吧', W / 2, topY + pad + titleH + 20, { color: PALETTE.textDim, fontSize: 13, align: 'center' });
+    ctx.restore();
+    return cardH;
+  }
+
+  const titleAreaBottom = topY + pad + titleH;
+  const listTop = titleAreaBottom;
+  const listBottom = topY + cardH - pad - viewAllH - viewAllGap;
+
+  // 绘制列表行
+  show.slice(0, displayCount).forEach((rec, i) => {
+    const ry = listTop + i * rowH;
+    if (ry + rowH < listTop || ry > listBottom) return;
+
+    // 分隔线：绘制在【行顶】（即上一条的底部）
+    if (i > 0) {
+      const sepY = ry;
+      if (sepY > listTop && sepY < listBottom) {
+        ctx.strokeStyle = '#E8E3DA';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cardX + pad, sepY);
+        ctx.lineTo(cardX + cardW - pad, sepY);
+        ctx.stroke();
+      }
+    }
+    const cy = ry + 8 + 16; // 头像中心
+    // 左侧圆形头像占位
+    ctx.beginPath();
+    ctx.arc(cardX + pad + 16, cy, 16, 0, Math.PI * 2);
+    ctx.fillStyle = '#E8E3DA';
+    ctx.fill();
+    drawText(ctx, '👤', cardX + pad + 16, cy + 1, { color: PALETTE.textDim, fontSize: 14, align: 'center', baseline: 'middle' });
+    // 昵称 + 日期（以结算结束时间为准，格式 MM-DD HH:MM）
+    const t = rec.endTime ? new Date(rec.endTime) : (rec.createTime ? new Date(rec.createTime) : null);
+    const ts = t ? (String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0') + ' ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0')) : '';
+    drawText(ctx, (rec.opponentName || '对手'), cardX + pad + 40, cy - 8, { color: PALETTE.text, fontSize: 13, bold: true });
+    drawText(ctx, ts, cardX + pad + 40, cy + 9, { color: '#B0B0B0', fontSize: 10 });
+    // 右侧 胜/负/和
+    const tag = rec.result === 'win' ? '胜' : rec.result === 'lose' ? '负' : '和';
+    const tagColor = rec.result === 'win' ? PALETTE.green : rec.result === 'lose' ? PALETTE.red : '#4A90D9';
+    drawText(ctx, tag, cardX + cardW - pad, cy, { color: tagColor, fontSize: 14, align: 'right', baseline: 'middle', bold: true });
+  });
+
+  // 标题白底带（绘制在行之上，避免被滚出的行穿透遮挡标题）
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(cardX + 1, topY + 1, cardW - 2, pad + titleH - 2);
+  drawText(ctx, '历史战绩', cardX + pad, topY + pad + 10, { color: PALETTE.text, fontSize: 14, bold: true });
+  ctx.strokeStyle = '#E8E3DA';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cardX + pad, titleAreaBottom - 1);
+  ctx.lineTo(cardX + cardW - pad, titleAreaBottom - 1);
+  ctx.stroke();
+
+  // === 「查看全部 / 收起」：作为历史战绩卡片内最下方的带边框按钮（figma 风格）===
+  rects.viewAllHistory = null;
+  if (hasMore) {
+    const btnX = cardX + pad + 8;
+    const btnY = listBottom + viewAllGap;
+    const btnW = cardW - (pad + 8) * 2;
+    const btnH = viewAllH;
+    // 外边框（圆角矩形，金色描边 + 浅底）
+    roundRect(ctx, btnX, btnY, btnW, btnH, 10);
+    ctx.fillStyle = '#FAF6EE';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#D4A843'; // 金色描边
+    ctx.stroke();
+    // 文字
+    const label = historyLoadedAll ? '收起 ↑' : '查看全部 ↓';
+    drawText(ctx, label, btnX + btnW / 2, btnY + btnH / 2 + 1, {
+      color: '#8B6914', fontSize: 14, align: 'center', baseline: 'middle', bold: true,
+    });
+    // 命中区
+    rects.viewAllHistory = { x: btnX, y: btnY, w: btnW, h: btnH };
+  }
+
+  ctx.restore();
   return cardH;
 }
 
 function onDraw(ctx) {
-  W = ctx.canvas.width;
-  H = ctx.canvas.height;
+  // ctx.canvas.width 为物理尺寸，需除以像素比得到逻辑尺寸
+  const pr = state.pixelRatio || 1;
+  W = ctx.canvas.width / pr;
+  H = ctx.canvas.height / pr;
 
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, PALETTE.bgGradientTop);
@@ -296,16 +517,65 @@ function onDraw(ctx) {
 
   drawHeader(ctx);
 
-  let topY = 180 + 12;
+  // === 内容区（头部之下、底部导航之上）整页滚动 ===
+  const navH = 64;
+  const contentTop = 180;                     // 头部高度
+  const contentViewH = H - contentTop - navH; // 内容可视高度
+
+  // 先量算内容总高度（与 drawHistory 高度算法一致），计算最大可滚动距离
+  const histArr = (myHistory || []);
+  const histCount = Math.min(histArr.length, historyLoadedAll ? 50 : 5);
+  const histEmpty = histArr.length === 0;
+  const histHasMore = histArr.length > 5;
+  // 历史卡高度 = 内边距 + 标题 + 行 + (查看全部按钮40 + 间距8) + 内边距
+  const histBtnH = histHasMore ? 48 : 0;
+  const historyCardH = histEmpty ? 180 : Math.max(180, 14 + 22 + histCount * 48 + histBtnH + 14);
+  const totalContentH = 12 + 158 + 12 + 170 + 12 + historyCardH + 12;
+  pageScrollMax = Math.max(0, totalContentH - contentViewH);
+  if (pageScroll > pageScrollMax) pageScroll = pageScrollMax;
+  if (pageScroll < 0) pageScroll = 0;
+
+  // 用 clip 限制可滚动内容出现在头部与底部导航之间
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, contentTop, W, contentViewH);
+  ctx.clip();
+  ctx.translate(0, -pageScroll);   // 整页上移实现滚动
+
+  let topY = contentTop + 12;
   topY += drawEnergyCard(ctx, topY) + 12;
   topY += drawSignInCard(ctx, topY) + 12;
   topY += drawHistory(ctx, topY);
 
+  ctx.restore();
+
   rects.W = W; rects.H = H;
   drawBottomNav(ctx, 'profile', rects);
+
+  // 设置弹窗（覆盖在最上层）
+  if (showSettings) settingsModal.drawSettingsModal(ctx, rects, {});
 }
 
 function onTouch(x, y) {
+  // 设置弹窗打开时：只处理设置弹窗交互
+  if (showSettings) {
+    const r = settingsModal.onSettingsTouch(x, y, rects);
+    if (r === 'close') { showSettings = false; return; }
+    return; // 'changed' 或 null 都拦截，不穿透到下层
+  }
+
+  // 底部导航优先判定（避免被其它大区域命中区误触）
+  if (rects.bottomTabs) {
+    for (const t of rects.bottomTabs) {
+      if (hit(t, x, y) && t.key !== 'profile') { sceneMgr.goto(t.key); return; }
+    }
+  }
+  // 右上角设置入口
+  if (rects.settingsBtn && hit(rects.settingsBtn, x, y)) {
+    audio.playClick();
+    showSettings = true;
+    return;
+  }
   // 点击头像：更换头像
   if (rects.avatarHit && hit(rects.avatarHit, x, y)) {
     changeAvatar();
@@ -316,28 +586,54 @@ function onTouch(x, y) {
     changeNickname();
     return;
   }
-  if (rects.signInBtn && hit(rects.signInBtn, x, y)) {
+
+  // 内容区按钮的命中坐标需要加上 pageScroll（因为绘制时整页上移了）
+  const cy = y + pageScroll;
+
+  if (rects.signInBtn && hit(rects.signInBtn, x, cy)) {
     if (checkedInToday) { wx.showToast({ title: '今日已签到，明天再来', icon: 'none' }); return; }
     wsManager.send('sign_in');
     return;
   }
   // 看视频 +10 精力（超限不可点）
-  if (rects.adEnergy && hit(rects.adEnergy, x, y)) {
+  if (rects.adEnergy && hit(rects.adEnergy, x, cy)) {
     if (dailyAdCount >= AD_REWARD_DAILY) { wx.showToast({ title: '今日看视频次数已用完', icon: 'none' }); return; }
     watchAdForEnergy();
     return;
   }
   // 分享 +5 精力（超限不可点）
-  if (rects.shareEnergy && hit(rects.shareEnergy, x, y)) {
+  if (rects.shareEnergy && hit(rects.shareEnergy, x, cy)) {
     if (dailyShareCount >= SHARE_REWARD_DAILY) { wx.showToast({ title: '今日分享次数已用完', icon: 'none' }); return; }
     shareForEnergy();
     return;
   }
-  if (rects.bottomTabs) {
-    for (const t of rects.bottomTabs) {
-      if (hit(t, x, y) && t.key !== 'profile') { sceneMgr.goto(t.key); return; }
-    }
+  // 查看全部 / 收起 历史战绩：按钮在历史战绩卡内，卡随整页滚动，故命中坐标需 +pageScroll
+  if (rects.viewAllHistory && hit(rects.viewAllHistory, x, cy)) {
+    historyLoadedAll = !historyLoadedAll;
+    pageScroll = 0;           // 收起/展开后回到顶部
+    // 数据已在 onEnter 时拉满 50 条，本地切换即可，无需重复请求
+    return;
   }
+  // 点击到内容区空白：开始整页拖动
+  dragStartY = y;
+  dragStartPageScroll = pageScroll;
+  dragging = true;
+  dragMode = 'page';
+}
+
+/** 触摸移动 - 整页滚动 */
+function onTouchMove(x, y) {
+  if (!dragging) return;
+  const dy = y - dragStartY;
+  pageScroll = dragStartPageScroll - dy;
+  if (pageScroll > pageScrollMax) pageScroll = pageScrollMax;
+  if (pageScroll < 0) pageScroll = 0;
+}
+
+/** 触摸结束 - 结束拖动 */
+function onTouchEnd() {
+  dragging = false;
+  dragMode = '';
 }
 
 /** 看激励视频广告换精力：播放完成后才发请求 */
@@ -377,33 +673,42 @@ function watchAdForEnergy() {
   });
 }
 
-/** 分享换精力：分享完成后发请求 */
+/**
+ * 分享换精力：
+ * 小游戏中 wx.shareAppMessage 的 success/fail 回调【不会触发】（微信限制），
+ * 因此不能在回调里发奖励，否则奖励请求永不发送。
+ * 改为：先同步唤起转发面板（用户点击"发送"即算分享成功），随后直接发奖励请求。
+ */
 function shareForEnergy() {
-  if (typeof wx.shareAppMessage !== 'function') {
+  if (typeof wx.shareAppMessage === 'function') {
+    try {
+      wx.shareAppMessage({
+        title: '【下六儿】快来和我下六儿，赢取积分！',
+        imageUrl: '',
+      });
+    } catch (e) {
+      // 极少数环境下 shareAppMessage 抛错，忽略，继续发放奖励
+    }
+  } else {
     wx.showToast({ title: '当前环境不支持分享，已直接发放', icon: 'none' });
-    wsManager.send('get_share_reward');
-    return;
   }
-  wx.shareAppMessage({
-    title: '【下六儿】快来和我下六儿，赢取积分！',
-    imageUrl: '',
-    success: () => {
-      // 分享成功后发奖励请求
-      wsManager.send('get_share_reward');
-    },
-    fail: () => {
-      wx.showToast({ title: '分享取消，未获得奖励', icon: 'none' });
-    },
-  });
+  // 直接发奖励请求（上限由服务端每日计数控制）
+  wsManager.send('get_share_reward');
 }
 
 /** 点击头像：选择预设 emoji 或从相册上传 */
 function changeAvatar() {
-  wx.showActionSheet({
-    itemList: ['选择预设头像', '从相册上传'],
-    success: (res) => {
-      if (res.tapIndex === 0) choosePresetAvatar();
-      else if (res.tapIndex === 1) uploadAvatar();
+  // 小游戏环境不支持 wx.showActionSheet，改用 wx.showModal 选择方式
+  wx.showModal({
+    title: '更换头像',
+    content: '选择更换方式',
+    confirmText: '从相册上传',
+    cancelText: '预设头像',
+    success: (r) => {
+      // 小游戏 wx.showModal 不支持 cancel 点击的 tapIndex 语义：
+      // confirm → 从相册上传；cancel → 预设头像
+      if (r.confirm) uploadAvatar();
+      else choosePresetAvatar();
     },
   });
 }
@@ -424,14 +729,16 @@ function choosePresetAvatar() {
   });
 }
 
-/** 选择相册图片并上传，成功后作为头像 */
+/** 选择相册图片并上传，成功后作为头像（小游戏用 wx.chooseMedia） */
 function uploadAvatar() {
-  wx.chooseImage({
+  wx.chooseMedia({
     count: 1,
+    mediaType: ['image'],
     sizeType: ['compressed'],
     sourceType: ['album'],
     success: (res) => {
-      const tempPath = res.tempFilePaths && res.tempFilePaths[0];
+      const file = res.tempFiles && res.tempFiles[0];
+      const tempPath = file && file.tempFilePath;
       if (!tempPath) return;
       wx.showLoading({ title: '上传中', mask: true });
       wx.getFileSystemManager().readFile({
@@ -486,10 +793,12 @@ function onWs() {}
 
 function onLeave() {
   wsManager.off('resource_update', onResourceUpdate);
+  wsManager.off('login_success', onLoginSuccess);
   wsManager.off('sign_in_result', onSignInResult);
   wsManager.off('ad_reward_result', onAdRewardResult);
   wsManager.off('share_reward_result', onShareRewardResult);
+  wsManager.off('history', onHistory);
   wsManager.off('error', onSignInError);
 }
 
-module.exports = { onEnter, onLeave, onDraw, onTouch, onWs };
+module.exports = { onEnter, onLeave, onDraw, onTouch, onTouchMove, onTouchEnd, onWs };

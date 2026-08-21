@@ -8,8 +8,9 @@ const { wsManager } = require('../utils/websocket');
 const { state } = require('../state');
 const ui = require('../utils/ui');
 const { PALETTE, drawText, drawButton, drawCard, drawAvatar, hit, roundRect, PIECE_SKINS } = ui;
-const { setPieceSkin } = require('../state');
 const gameCore = require('../utils/game-core');
+const audio = require('../utils/audio');
+const settingsModal = require('../utils/settings-modal');
 const sceneMgr = require('./index');
 
 let W = 375;
@@ -76,8 +77,8 @@ function onEnter(payload) {
     gameId: gameData.gameId, phase,
     phaseLabel: gameCore.STAGE_LABELS[phase] || '下子阶段',
     currentTurn: gameData.currentTurn, myColor, myOpenid,
-    myInfo: { nickName: myInfo.nickName || '', avatarUrl: myInfo.avatarUrl || '', rankScore: myInfo.rankScore || 0 },
-    opponentInfo: { nickName: oppInfo.nickName || '', avatarUrl: oppInfo.avatarUrl || '', rankScore: oppInfo.rankScore || 0 },
+    myInfo: { nickName: myInfo.nickName || '', avatarUrl: myInfo.avatarUrl || '', rankScore: myInfo.rankScore || 0, isBot: !!myInfo.isBot },
+    opponentInfo: { nickName: oppInfo.nickName || '', avatarUrl: oppInfo.avatarUrl || '', rankScore: oppInfo.rankScore || 0, isBot: !!oppInfo.isBot },
     myTurn, boardFlipped, remainingTime, timeTotal: timeTotalSec,
     timerText: gameCore.formatTime(remainingTime),
     timeLow: remainingTime > 0 && remainingTime <= 10,
@@ -113,7 +114,10 @@ function registerWs() {
   wsManager.on('draw_request', onDrawRequest);
   wsManager.on('game_settle', onGameSettle);
   wsManager.on('game_snapshot', onGameSnapshot);
-  wsManager.on('timeout_warning', () => wx.showToast({ title: '已超时，系统将自动操作', icon: 'none' }));
+  wsManager.on('timeout_warning', () => {
+    wx.showToast({ title: '已超时，系统将自动操作', icon: 'none' });
+    audio.playTick();
+  });
   wsManager.on('resource_update', onResourceUpdate);
   wsManager.on('error', onError);
   wsManager.on('opponent_disconnected', () => wx.showToast({ title: '对手已掉线，30秒后判你胜', icon: 'none' }));
@@ -148,6 +152,14 @@ function onBoardUpdate(data) {
   });
   updateBoardPieces(data.board || []);
   updateCatchNums(data.catchNums || { black: 0, white: 0 });
+
+  // 音效：根据上一步操作类型播放（lastMove.player 是执子方 color，action 是 place/move/capture）
+  const lm = data.lastMove;
+  if (lm && typeof lm.action === 'string') {
+    if (lm.action === 'place') audio.playPlace();
+    else if (lm.action === 'move') audio.playMove();
+    // capture 由 updateCatchNums 内部的"我方被揪"逻辑播放 playCaptured+震动
+  }
 }
 
 function onStageChange(data) {
@@ -217,6 +229,10 @@ function onGameSettle(data) {
     phase: 'settled', phaseLabel: '已结束',
     rankName: data[rankKey] || '', rankScore: data[rankScoreKey] || 0,
   });
+  // 结算音效 + 震动反馈
+  if (myResult === 'win') { audio.playWin(); audio.vibrate(30); }
+  else if (myResult === 'draw') { audio.playDraw(); }
+  else { audio.playLose(); audio.vibrate(15); }
 }
 
 function onGameSnapshot(data) {
@@ -264,6 +280,8 @@ function onError(data) {
     });
     return;
   }
+  // 过滤良性/瞬时错误（请先登录等重连竞态），不打断正常游戏
+  if (msg === '请先登录' || /未知指令/.test(msg)) return;
   wx.showToast({ title: msg, icon: 'none' });
 }
 
@@ -297,9 +315,15 @@ function updateRemainCounts() {
 
 function updateCatchNums(catchNums) {
   const myColor = game.myColor;
+  const prevOpp = game.opponentCatchNum || 0;
   game.catchNums = catchNums;
   game.myCatchNum = myColor === 1 ? (catchNums.black || 0) : (catchNums.white || 0);
   game.opponentCatchNum = myColor === 1 ? (catchNums.white || 0) : (catchNums.black || 0);
+  // 我方棋子被揪走：触发被揪音效 + 震动
+  if (game.opponentCatchNum > prevOpp) {
+    audio.playCaptured();
+    audio.vibrate(20);
+  }
   updateCaptureMode();
 }
 
@@ -315,8 +339,10 @@ function updateCaptureMode() {
 // ========== 绘制 ==========
 
 function onDraw(ctx) {
-  W = ctx.canvas.width;
-  H = ctx.canvas.height;
+  // ctx.canvas.width 为物理尺寸，需除以像素比得到逻辑尺寸
+  const pr = state.pixelRatio || 1;
+  W = ctx.canvas.width / pr;
+  H = ctx.canvas.height / pr;
 
   // 本地倒计时自减：保证环形进度和秒数字每秒实时变化
   const nowTs = Date.now();
@@ -339,6 +365,9 @@ function onDraw(ctx) {
   drawPlayerCards(ctx);
   drawBottomActions(ctx);
 
+  // 设置 rects.W/H（逻辑尺寸），供所有弹窗（drawDrawRequest/drawSetModal/drawSettle 等）使用
+  rects.W = W; rects.H = H;
+
   if (game.showDrawRequest) drawDrawRequest(ctx);
   if (game.showRequestDraw) drawRequestDrawConfirm(ctx);
   if (game.showGiveUpConfirm) drawGiveUpConfirm(ctx);
@@ -346,46 +375,9 @@ function onDraw(ctx) {
   if (game.showSettle) drawSettle(ctx);
 }
 
-// 设置弹窗：音效/震动开关 + 棋子皮肤选择（四套预览，含树枝·石子组合）
+// 设置弹窗：统一复用通用设置组件（音乐/音效/震动开关 + 棋子皮肤）
 function drawSetModal(ctx) {
-  ctx.fillStyle = 'rgba(60,47,40,0.5)';
-  ctx.fillRect(0, 0, W, H);
-  const pw = W * 0.86, ph = Math.max(400, Math.round(H * 0.64)), px = (W - pw) / 2, py = (H - ph) / 2;
-  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 18 });
-  drawText(ctx, '对局设置', W / 2, py + 34, { fontSize: 30,
-    color: PALETTE.text, align: 'center', bold: true });
-
-  // 棋子皮肤（2 列 × 2 行）
-  drawText(ctx, '棋子皮肤', px + 24, py + 78, { fontSize: 22,
-    color: PALETTE.textDim, align: 'left' });
-  drawText(ctx, '材质组合', px + 24, py + 102, { fontSize: 13,
-    color: PALETTE.textDim, align: 'left' });
-  const skins = ['classic', 'warm', 'nature', 'twig'];
-  const cols = 2;
-  const gap = 16;
-  const sw = (pw - 48 - gap) / cols;
-  const sh = 96;
-  rects.skinBtns = [];
-  skins.forEach((key, i) => {
-    const r = Math.floor(i / cols);
-    const c = i % cols;
-    const bx = px + 24 + c * (sw + gap);
-    const by = py + 120 + r * (sh + gap);
-    const selected = state.pieceSkin === key;
-    drawCard(ctx, { x: bx, y: by, w: sw, h: sh, radius: 12,
-      border: selected ? PALETTE.green : PALETTE.panelBorder,
-      borderWidth: selected ? 3 : 1.5 });
-    // 黑白两子预览
-    ui.drawPiece(ctx, { x: bx + sw / 2 - 18, y: by + 38, r: 15, color: 'black', skinKey: key });
-    ui.drawPiece(ctx, { x: bx + sw / 2 + 18, y: by + 38, r: 15, color: 'white', skinKey: key });
-    drawText(ctx, ui.PIECE_SKINS[key].label, bx + sw / 2, by + 78,
-      { fontSize: 18, color: PALETTE.text, align: 'center' });
-    rects.skinBtns.push({ x: bx, y: by, w: sw, h: sh, key });
-  });
-
-  // 关闭
-  rects.closeSettings = drawButton(ctx, { text: '完成', x: px + 24, y: py + ph - 64,
-    w: pw - 48, h: 48, fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 24 });
+  settingsModal.drawSettingsModal(ctx, rects, { title: '对局设置' });
 }
 
 // 段位名（依据积分区间，与服务端 config 一致）
@@ -482,10 +474,20 @@ function drawPlayerCard(ctx, o) {
   });
 
   // 名字 + 段位（去掉"段位"前缀，改为"段位名 · 积分"）
-  drawText(ctx, o.name, o.x + 64, cy - 9, { color: PALETTE.text, fontSize: 19, bold: true });
+  const displayName = (o.isBot ? '🤖 ' : '') + o.name;
+  drawText(ctx, displayName, o.x + 64, cy - 9, { color: PALETTE.text, fontSize: 19, bold: true });
   drawText(ctx, rankNameFromScore(o.rank) + ' · ' + (o.rank || 0), o.x + 64, cy + 14, {
     color: PALETTE.textDim, fontSize: 14,
   });
+  // 机器人角标：昵称右侧增加"机器人"小标签（后续正式上线时删除此块即可）
+  if (o.isBot) {
+    const tagText = '机器人';
+    const tagW = 44, tagH = 18, tagX = o.x + 64 + (o.name ? o.name.length * 19 + 8 : 0), tagY = cy - 18;
+    roundRect(ctx, tagX, tagY, tagW, tagH, 9);
+    ctx.fillStyle = '#8A6FB0';
+    ctx.fill();
+    drawText(ctx, tagText, tagX + tagW / 2, tagY + tagH / 2, { color: '#FFFFFF', fontSize: 11, align: 'center', baseline: 'middle', bold: true });
+  }
 
   // 右侧倒计时环（当前回合方用阶段色 + 数字，非回合方置灰）
   const cdR = 14;
@@ -808,17 +810,9 @@ function onTouch(x, y) {
     return;
   }
   if (game.showSettings) {
-    if (rects.skinBtns) {
-      for (const b of rects.skinBtns) {
-        if (hit(b, x, y)) {
-          setPieceSkin(b.key);
-          game.showSettings = false;
-          return;
-        }
-      }
-    }
-    if (hit(rects.closeSettings, x, y)) { game.showSettings = false; return; }
-    return;
+    const r = settingsModal.onSettingsTouch(x, y, rects);
+    if (r === 'close') { game.showSettings = false; return; }
+    return; // 'changed' 或 null 都拦截，不穿透到棋盘
   }
 
   if (hit(rects.skipBtn, x, y) && (game.skipAvailable || game.moveCaptureMode)) {
@@ -843,6 +837,8 @@ function onTouch(x, y) {
 
   if (game.phase === 'place') {
     wsManager.send('place_piece', { r, c });
+    audio.playPlace();       // 落子音效
+    audio.vibrate(15);
   } else if (game.phase === 'capture') {
     handleCaptureTouch(r, c);
   } else if (game.phase === 'move') {
@@ -859,6 +855,8 @@ function handleCaptureTouch(r, c) {
       return;
     }
     wsManager.send('linked_capture', { r, c });
+    audio.playCapture();
+    audio.vibrate(20);
     return;
   }
   const p = pieceAt(r, c);
@@ -869,6 +867,8 @@ function handleCaptureTouch(r, c) {
     return;
   }
   wsManager.send('capture_piece', { r, c });
+  audio.playCapture();
+  audio.vibrate(20);
 }
 
 function handleMoveTouch(r, c) {
@@ -901,6 +901,8 @@ function handleMoveTouch(r, c) {
     return;
   }
   wsManager.send('move_piece', { fromR: piece.r, fromC: piece.c, toR: r, toC: c });
+  audio.playMove();
+  audio.vibrate(15);
 }
 
 function selectPiece(index) {

@@ -31,7 +31,7 @@ async function initSchema() {
         unionid        VARCHAR(64)   DEFAULT NULL,
         nickName       VARCHAR(128)  DEFAULT '',
         avatarUrl      VARCHAR(512)  DEFAULT '',
-        rankScore      INT           NOT NULL DEFAULT 1000,
+        rankScore      INT           NOT NULL DEFAULT 0,
         rankName       VARCHAR(32)   DEFAULT '初级小六',
         energy         INT           NOT NULL DEFAULT 30,
         copper         INT           NOT NULL DEFAULT 0,

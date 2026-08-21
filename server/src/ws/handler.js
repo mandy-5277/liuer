@@ -196,6 +196,19 @@ async function handleLogin(ws, data) {
     ws.openid = openid;
     registerConnection(ws, openid, user);
 
+    // 跨天对齐每日奖励次数（看广告/分享），确保今天登录即恢复
+    let dailyAd = user.dailyAdCount || 0;
+    let dailyShare = user.dailyShareCount || 0;
+    try {
+      const reset = await userService.ensureDailyReset(openid);
+      if (reset && reset.success) {
+        dailyAd = reset.adCount || 0;
+        dailyShare = reset.shareCount || 0;
+      }
+    } catch (e) {
+      console.error('[WS] 每日次数对齐失败:', e.message);
+    }
+
     // 返回用户数据
     safeSend(ws, {
       cmd: 'login_success',
@@ -205,19 +218,25 @@ async function handleLogin(ws, data) {
         avatarUrl: user.avatarUrl,
         rankScore: user.rankScore,
         rankName: user.rankName,
-        totalGames: user.totalGames,
-        wins: user.wins,
-        losses: user.losses,
-        draws: user.draws,
+        // 场次统计：getOrCreateUser 返回 winCount/loseCount/drawCount（wins/losses/draws 为旧字段，兼容保留）
+        totalGames: ((user.winCount || 0) + (user.loseCount || 0) + (user.drawCount || 0)),
+        winCount: user.winCount || 0,
+        loseCount: user.loseCount || 0,
+        drawCount: user.drawCount || 0,
+        wins: user.winCount || 0,
+        losses: user.loseCount || 0,
+        draws: user.drawCount || 0,
         winRate: user.winRate,
         energy: user.energy,
         energyMax: user.energyMax,
         energyRecoverAt: user.energyRecoverAt || 0,
+        dailyAdCount: dailyAd,
+        dailyShareCount: dailyShare,
         regretCards: user.regretCards,
         renameCards: user.renameCards,
         settings: user.settings,
         signinStreak: user.signinStreak,
-        lastSigninDate: user.lastSigninDate,
+        lastCheckin: user.lastCheckin,
       },
     });
 
@@ -237,11 +256,11 @@ async function handleLogin(ws, data) {
         avatarUrl: fallbackUser.avatarUrl,
         rankScore: fallbackUser.rankScore,
         rankName: fallbackUser.rankName,
-        totalGames: 0, wins: 0, losses: 0, draws: 0, winRate: 0,
+        totalGames: 0, winCount: 0, loseCount: 0, drawCount: 0, wins: 0, losses: 0, draws: 0, winRate: 0,
         energy: 30, energyMax: 30, energyRecoverAt: 0,
         regretCards: 0, renameCards: 0,
         settings: { soundEnabled: true, vibrationEnabled: true, musicEnabled: true },
-        signinStreak: 0, lastSigninDate: '',
+        signinStreak: 0, lastCheckin: '',
       },
     });
 
@@ -261,16 +280,19 @@ function handleMatchStart(ws, data) {
   const session = wsMap.get(openid);
   if (!session) return;
 
-  const result = joinMatching({
+  joinMatching({
     openid,
     nickName: session.nickName,
     avatarUrl: session.avatarUrl,
     rankScore: session.user?.rankScore || 0,
+  }).then((result) => {
+    if (!result.success) {
+      sendToPlayer(openid, { cmd: 'error', data: { errMsg: result.errMsg } });
+    }
+  }).catch((err) => {
+    console.error('[WS] joinMatching 失败:', err);
+    sendToPlayer(openid, { cmd: 'error', data: { errMsg: '匹配失败，请重试' } });
   });
-
-  if (!result.success) {
-    sendToPlayer(openid, { cmd: 'error', data: { errMsg: result.errMsg } });
-  }
 }
 
 function handleMatchCancel(ws) {
@@ -456,19 +478,18 @@ async function handleSignIn(ws) {
 
   const result = await checkinService.checkin(openid);
   if (result.success) {
-    // 签到奖励精力（不再发放铜板）
-    const energyRes = await userService.addEnergy(openid, result.bonus || 5);
     sendToPlayer(openid, {
       cmd: 'sign_in_result',
       data: {
         streak: result.streak,
         dayIndex: result.dayIndex,
-        energy: energyRes.energy,
+        energy: result.energy,
+        bonus: result.bonus,
       },
     });
     sendToPlayer(openid, {
       cmd: 'resource_update',
-      data: { energy: energyRes.energy, energyRecoverAt: energyRes.energyRecoverAt || 0 },
+      data: { energy: result.energy, energyRecoverAt: result.energyRecoverAt || 0 },
     });
   } else {
     sendToPlayer(openid, { cmd: 'error', data: { errMsg: result.errMsg } });
@@ -504,10 +525,10 @@ async function handleAdReward(ws) {
   const reward = gameConfig.adReward || 10;
   const result = await userService.addEnergy(openid, reward);
   if (result.success) {
-    await userService.incrementAdCount(openid);
+    const inc = await userService.incrementAdCount(openid);
     sendToPlayer(openid, {
       cmd: 'ad_reward_result',
-      data: { energy: result.energy, reward },
+      data: { energy: result.energy, reward, adCount: inc && inc.count ? inc.count : 0 },
     });
     sendToPlayer(openid, {
       cmd: 'resource_update',
@@ -531,10 +552,10 @@ async function handleShareReward(ws) {
   const reward = gameConfig.shareReward || 5;
   const result = await userService.addEnergy(openid, reward);
   if (result.success) {
-    await userService.incrementShareCount(openid);
+    const inc = await userService.incrementShareCount(openid);
     sendToPlayer(openid, {
       cmd: 'share_reward_result',
-      data: { energy: result.energy, reward },
+      data: { energy: result.energy, reward, shareCount: inc && inc.count ? inc.count : 0 },
     });
     sendToPlayer(openid, {
       cmd: 'resource_update',

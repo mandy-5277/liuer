@@ -27,6 +27,13 @@ let list = [];           // top100 数组
 let scrollOffset = 0;    // 列表纵向滚动偏移（像素）
 const rowH = 52;         // 每行高度（缩小字体后紧凑）
 
+// 拖动状态
+let isDragging = false;
+let dragMoved = false;   // 本次触摸是否产生过有效拖动（用于区分 tap / drag）
+let dragStartY = 0;      // 触摸起点 y
+let dragStartOffset = 0; // 触摸起点 scrollOffset
+let listTopY = 0, listBottomY = 0; // 列表可视区（onDraw 计算后保存，供 touch 使用）
+
 let myInfo = {
   rank: -1,
   nickName: '',
@@ -135,12 +142,12 @@ function drawList(ctx, listTop, listBottom) {
       label: (it.nickName || '').slice(0, 1), avatar: it.avatarUrl || '',
     });
     // 昵称
-    drawText(ctx, (it.nickName || '匿名玩家'), 100, y + rowH / 2 - 10, {
-      color: PALETTE.text, fontSize: 17, bold: true, baseline: 'middle',
+    drawText(ctx, (it.nickName || '匿名玩家'), 100, y + rowH / 2 - 13, {
+      color: PALETTE.text, fontSize: 16, bold: true, baseline: 'middle',
     });
     // 段位
-    drawText(ctx, it.rankName || '', 100, y + rowH / 2 + 12, {
-      color: PALETTE.textDim, fontSize: 13, baseline: 'middle',
+    drawText(ctx, it.rankName || '', 100, y + rowH / 2 + 9, {
+      color: PALETTE.textDim, fontSize: 12, baseline: 'middle',
     });
     // 积分 / 胜率（内缩到卡片内）
     if (showScore) {
@@ -225,8 +232,10 @@ function drawScrollHint(ctx, listTop, listBottom) {
 }
 
 function onDraw(ctx) {
-  W = ctx.canvas.width;
-  H = ctx.canvas.height;
+  // ctx.canvas.width 为物理尺寸，需除以像素比得到逻辑尺寸
+  const pr = state.pixelRatio || 1;
+  W = ctx.canvas.width / pr;
+  H = ctx.canvas.height / pr;
 
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, PALETTE.bgGradientTop);
@@ -251,6 +260,10 @@ function onDraw(ctx) {
   const listTop = sbh + 60 + 38 + 14; // tab 底部 + 间隔
   const listBottom = myTop - 8;
 
+  // 保存供 touch 使用
+  listTopY = listTop;
+  listBottomY = listBottom;
+
   const listH = listBottom - listTop;
   const totalListH = list.length * rowH;
   // 限制滚动范围
@@ -260,10 +273,7 @@ function onDraw(ctx) {
 
   drawList(ctx, listTop, listBottom);
 
-  // 当列表超出可视区域时显示滚动提示
-  if (totalListH > listH) {
-    drawScrollHint(ctx, listTop, listBottom);
-  }
+  // 不再显示"上滑/下滑查看更多"提示（顶部遮罩会遮挡第一名）
 
   rects.W = W; rects.H = H;
   drawBottomNav(ctx, 'rank', rects);
@@ -276,19 +286,12 @@ function onTouch(x, y) {
       if (hit(t, x, y)) { switchTab(t.key); return; }
     }
   }
-  // 列表区滑动：单次 tap 向上/向下滚动 3 行
-  const sbh = state.statusBarHeight;
-  const navTop = H - 64;
-  const myTop = navTop - 64 - 10;
-  const listTop = sbh + 60 + 38 + 14;
-  const listBottom = myTop - 8;
-  if (y > listTop && y < listBottom) {
-    // 上半部 tap → 上滚（看后面的），下半部 → 下滚
-    if (y < (listTop + listBottom) / 2) {
-      scrollOffset = Math.min(scrollOffset + rowH * 3, Math.max(0, list.length * rowH - (listBottom - listTop)));
-    } else {
-      scrollOffset = Math.max(0, scrollOffset - rowH * 3);
-    }
+  // 列表区：记录触摸起点（拖动或 tap 判定在 touchEnd 进行）
+  if (y > listTopY && y < listBottomY) {
+    isDragging = true;
+    dragMoved = false;
+    dragStartY = y;
+    dragStartOffset = scrollOffset;
     return;
   }
   // 底部导航
@@ -299,4 +302,33 @@ function onTouch(x, y) {
   }
 }
 
-module.exports = { onEnter, onLeave, onDraw, onTouch, onWs: () => {} };
+function onTouchMove(x, y) {
+  if (!isDragging) return;
+  const dy = y - dragStartY;
+  // 手指向下滑（dy>0）→ 内容向下，即 scrollOffset 减小（看前面的）
+  // 手指向上滑（dy<0）→ scrollOffset 增大（看后面的）
+  const newOffset = dragStartOffset - dy;
+  const maxOffset = Math.max(0, list.length * rowH - (listBottomY - listTopY));
+  scrollOffset = Math.max(0, Math.min(maxOffset, newOffset));
+  if (Math.abs(dy) > 4) dragMoved = true; // 超过阈值视为拖动而非 tap
+}
+
+function onTouchEnd() {
+  if (!isDragging) return;
+  // 未发生有效拖动 → 视为 tap：根据点击位置上/下半区滚动 3 行
+  if (!dragMoved) {
+    const mid = (listTopY + listBottomY) / 2;
+    const maxOffset = Math.max(0, list.length * rowH - (listBottomY - listTopY));
+    if (dragStartY < mid) {
+      // 上半区 tap → 上滚看后面
+      scrollOffset = Math.min(scrollOffset + rowH * 3, maxOffset);
+    } else {
+      // 下半区 tap → 下滚看前面
+      scrollOffset = Math.max(0, scrollOffset - rowH * 3);
+    }
+  }
+  isDragging = false;
+  dragMoved = false;
+}
+
+module.exports = { onEnter, onLeave, onDraw, onTouch, onTouchMove, onTouchEnd, onWs: () => {} };

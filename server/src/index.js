@@ -21,7 +21,8 @@ const { WebSocketServer } = require('ws');
 const express = require('express');
 const { port, wsHeartbeatInterval, wechat } = require('./config');
 const { dispatch } = require('./ws/handler');
-const { wsMap, removeConnection, gameSessions, findActiveGameByPlayer, handlePlayerDisconnect } = require('./services/session');
+const { wsMap, removeConnection, gameSessions, findActiveGameByPlayer, handlePlayerDisconnect, matchingQueue, joinMatching } = require('./services/session');
+const robot = require('./services/robot');
 const { initSchema } = require('./db/mysql');
 const { ensureEnergySchema } = require('./services/data');
 const redis = require('./db/redis');
@@ -294,6 +295,13 @@ async function start() {
     process.exit(1);
   }
 
+  // 启动机器人匹配看门狗（真人匹配超时后机器人介入）
+  try {
+    robot.startMatchWatchdog(matchingQueue, joinMatching);
+  } catch (err) {
+    console.error('[Robot] 启动匹配看门狗失败:', err.message);
+  }
+
   server.listen(port, () => {
     console.log('='.repeat(50));
     console.log('  六儿 游戏服务端 v1.0');
@@ -321,6 +329,9 @@ process.on('SIGINT', () => {
 });
 
 function gracefulShutdown() {
+  // 停止机器人匹配看门狗
+  try { robot.stopMatchWatchdog(); } catch (_) { /* ignore */ }
+
   // 通知所有在线玩家
   for (const [openid, session] of wsMap) {
     try {

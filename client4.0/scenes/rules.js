@@ -86,7 +86,7 @@ function drawTabs(ctx) {
       ctx.strokeStyle = PALETTE.panelBorder;
       ctx.stroke();
     }
-    drawText(ctx, t, x + tw / 2, tabY + 26, {
+    drawText(ctx, t, x + tw / 2, tabY + 20, {
       color: active ? PALETTE.textOnGold : PALETTE.textDim, fontSize: 20, align: 'center', baseline: 'middle', bold: active,
     });
     rects.tabs.push({ key: i, x, y: tabY, w: tw, h: 40 });
@@ -319,8 +319,10 @@ function drawContentCard(ctx) {
 }
 
 function onDraw(ctx) {
-  W = ctx.canvas.width;
-  H = ctx.canvas.height;
+  // ctx.canvas.width 为物理尺寸，需除以像素比得到逻辑尺寸
+  const pr = state.pixelRatio || 1;
+  W = ctx.canvas.width / pr;
+  H = ctx.canvas.height / pr;
 
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, PALETTE.bgGradientTop);

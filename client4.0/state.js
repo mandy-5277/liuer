@@ -8,6 +8,7 @@
 
 const { wsManager, wsConfig } = require('./utils/websocket');
 const { SERVER_BASE } = require('./config');
+const audio = require('./utils/audio');
 
 const SERVER_URL = SERVER_BASE;
 
@@ -45,15 +46,26 @@ const state = {
   // 需要引导用户完善资料（昵称/头像）时置 true，由首页弹出"完善资料"浮层
   showProfileSetup: false,
 
+  // 每日看视频/分享已用次数（权威值，由服务端 login_success / reward 结果同步）
+  dailyAdCount: undefined,
+  dailyShareCount: undefined,
+
+  // 服务端最近一次签到日期（YYYY-MM-DD），清缓存后以服务端为准
+  lastCheckin: '',
+
   // 游戏数据（由服务端 resource_update 事件同步更新）
-  energy: { current: 5, max: 30, nextRecoverAt: 0 },
+  energy: { current: undefined, max: 30, nextRecoverAt: 0 },
   rankName: '初级小六',
   rankScore: 0,
   winRate: 0,
+  wins: 0,       // 胜场数
+  losses: 0,     // 负场数
+  draws: 0,      // 和场数
 
   // 系统信息
   systemInfo: null,
   statusBarHeight: 20,
+  pixelRatio: 1,      // 设备像素比（高清屏适配用）
 
   // 当前对局（匹配成功后由 game_start 写入）
   currentGame: null,
@@ -70,7 +82,27 @@ const state = {
   pieceSkin: (() => {
     try { return wx.getStorageSync('pieceSkin') || 'classic'; } catch (e) { return 'classic'; }
   })(),
+
+  // 声音/音乐/震动设置（本地持久化，默认全部开启）
+  settings: (() => {
+    let s = {};
+    try { s = wx.getStorageSync('gameSettings') || {}; } catch (e) { s = {}; }
+    return {
+      music: s.music !== false,   // 背景音乐
+      sound: s.sound !== false,   // 音效
+      vibrate: s.vibrate !== false, // 震动
+    };
+  })(),
 };
+
+/** 更新设置项并持久化（key ∈ music/sound/vibrate，val 布尔） */
+function setSetting(key, val) {
+  if (!(key in state.settings)) return;
+  state.settings[key] = !!val;
+  try { wx.setStorageSync('gameSettings', state.settings); } catch (e) { /* ignore */ }
+  // 同步音频管理器
+  audio.syncBgm();
+}
 
 /** 设置并持久化棋子皮肤 */
 function setPieceSkin(skinKey) {
@@ -86,6 +118,9 @@ function setPieceSkin(skinKey) {
  */
 function init() {
   getSystemInfo();
+  // 绑定设置对象给音频管理器，并据开关启动/不启动背景音乐
+  audio.bindSettings(state.settings);
+  audio.syncBgm();
   loginAndConnect();
 }
 
@@ -94,8 +129,10 @@ function getSystemInfo() {
     const info = wx.getSystemInfoSync();
     state.systemInfo = info;
     state.statusBarHeight = info.statusBarHeight || 20;
+    state.pixelRatio = info.pixelRatio || info.devicePixelRatio || 1;
   } catch (e) {
     state.statusBarHeight = 20;
+    state.pixelRatio = 1;
   }
 }
 
@@ -172,9 +209,10 @@ function ensureUserInfoAndConnect() {
     return;
   }
 
-  // 无本地资料：连接服务器（先以空昵称连接），并标记需要完善资料，由首页弹浮层引导。
-  state.showProfileSetup = true;
-  console.log('[State] 首次进入，引导完善昵称/头像');
+  // 无本地资料：先不急于弹浮层。
+  // 先以空昵称连接服务器，等待 login_success 返回后，由服务端真实资料（nickName 是否存在）
+  // 来决定是否需要"完善资料"。这样同一微信用户后续登录（服务端已存昵称）就不会再弹。
+  state.showProfileSetup = false;
   connectGameServer();
 }
 
@@ -223,17 +261,41 @@ function connectGameServer() {
 /** 同步服务端数据到 state */
 function syncUserData(data) {
   if (data.nickName !== undefined) {
+    const hasName = !!(data.nickName && data.nickName.trim());
     state.userInfo = Object.assign({}, state.userInfo, {
       nickName: data.nickName,
       avatarUrl: data.avatarUrl,
     });
+    if (hasName) {
+      // 服务端已有昵称（非首次）→ 不再需要引导完善资料，并持久化到本地
+      state.showProfileSetup = false;
+      try { wx.setStorageSync('userInfo', { nickName: data.nickName, avatarUrl: data.avatarUrl || '' }); } catch (e) { /* ignore */ }
+    } else {
+      // 服务端无昵称（真正的首次登录）→ 引导完善资料
+      state.showProfileSetup = true;
+      console.log('[State] 服务端无昵称，引导完善昵称/头像');
+    }
   }
   if (data.rankScore !== undefined) state.rankScore = data.rankScore;
   if (data.rankName !== undefined) state.rankName = data.rankName;
   if (data.winRate !== undefined) state.winRate = data.winRate;
+  // 场次统计（兼容服务端两种字段名：winCount/loseCount/drawCount 与 wins/losses/draws）
+  if (data.winCount !== undefined) state.wins = data.winCount;
+  else if (data.wins !== undefined) state.wins = data.wins;
+  if (data.loseCount !== undefined) state.losses = data.loseCount;
+  else if (data.losses !== undefined) state.losses = data.losses;
+  if (data.drawCount !== undefined) state.draws = data.drawCount;
+  else if (data.draws !== undefined) state.draws = data.draws;
   if (data.energy !== undefined) state.energy.current = data.energy;
   if (data.energyMax !== undefined) state.energy.max = data.energyMax;
-  if (data.nextRecoverAt !== undefined) state.energy.nextRecoverAt = data.nextRecoverAt;
+  // 服务端字段名为 energyRecoverAt（nextRecoverAt 兼容历史写法）
+  if (data.energyRecoverAt !== undefined) state.energy.nextRecoverAt = data.energyRecoverAt;
+  else if (data.nextRecoverAt !== undefined) state.energy.nextRecoverAt = data.nextRecoverAt;
+  // 每日奖励已用次数：以服务端为准（仅当服务端明确返回时同步，避免 resource_update 缺字段时误清）
+  if (data.dailyAdCount !== undefined) state.dailyAdCount = data.dailyAdCount;
+  if (data.dailyShareCount !== undefined) state.dailyShareCount = data.dailyShareCount;
+  // 签到日期：以服务端为准
+  if (data.lastCheckin !== undefined) state.lastCheckin = data.lastCheckin;
 }
 
 module.exports = {
@@ -241,6 +303,7 @@ module.exports = {
   init,
   syncUserData,
   setPieceSkin,
+  setSetting,
   saveProfile,
   AVATAR_PRESETS,
   randomNickname,

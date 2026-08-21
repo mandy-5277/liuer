@@ -13,6 +13,8 @@ const GameEngine = require('../game/engine');
 const { Stage } = require('../game/constants');
 const { userService, gameRecordService, roomService, transactionService } = require('./data');
 const { game: gameConfig } = require('../config');
+const robot = require('./robot');
+const robotAI = require('../game/robot');
 
 // ========== 全局状态容器 ==========
 
@@ -113,6 +115,10 @@ async function joinMatching(player) {
   }
 
   matchingQueue.push(player);
+  // 记录真人入队时间，供机器人介入延迟判断（_enqueueAt 仅用于匹配看门狗）
+  if (!player._bot) {
+    player._enqueueAt = Date.now();
+  }
   sendToPlayer(player.openid, {
     cmd: 'match_status',
     data: { status: 'matching', queueSize: matchingQueue.length },
@@ -186,6 +192,11 @@ async function joinRoomByCode(joinerUid, roomId) {
   const room = await roomService.findByRoomId(roomId);
   if (!room) {
     return { success: false, errMsg: '房间不存在或已过期' };
+  }
+
+  // 阻断：不能加入自己创建的房间（否则双方为同一人，对局异常）
+  if (room.creatorOpenid && room.creatorOpenid === joinerUid) {
+    return { success: false, errMsg: '不能进入自己创建的房间' };
   }
 
   await roomService.joinRoom(room._id, joinerUid);
@@ -290,12 +301,22 @@ async function startGame(blackPlayer, whitePlayer, roomType) {
   const gameId = generateGameId();
 
   // 开局消耗双方精力（每局 energyPerGame），不足则跳过扣减，避免对局卡死
+  // 机器人无精力系统，不参与扣减
   const cost = gameConfig.energyPerGame || 1;
+  const { isBotUser } = userService;
   try {
-    await userService.deductEnergy(blackPlayer.openid, cost);
-    await userService.deductEnergy(whitePlayer.openid, cost);
+    if (!(await isBotUser(blackPlayer.openid))) {
+      await userService.deductEnergy(blackPlayer.openid, cost);
+    }
   } catch (e) {
-    console.error('[Session] 扣除开局精力失败:', e);
+    console.error('[Session] 扣除黑方开局精力失败:', e);
+  }
+  try {
+    if (!(await isBotUser(whitePlayer.openid))) {
+      await userService.deductEnergy(whitePlayer.openid, cost);
+    }
+  } catch (e) {
+    console.error('[Session] 扣除白方开局精力失败:', e);
   }
 
   const engine = new GameEngine(gameId, blackPlayer, whitePlayer);
@@ -303,6 +324,10 @@ async function startGame(blackPlayer, whitePlayer, roomType) {
   gameSessions.set(gameId, engine);
 
   // 通知双方游戏开始
+  const isBot = async (oid) => { try { return await userService.isBotUser(oid); } catch (e) { return false; } };
+  const blackIsBot = await isBot(blackPlayer.openid);
+  const whiteIsBot = await isBot(whitePlayer.openid);
+
   const startMsg = {
     cmd: 'game_start',
     data: {
@@ -316,12 +341,14 @@ async function startGame(blackPlayer, whitePlayer, roomType) {
         nickName: blackPlayer.nickName,
         avatarUrl: blackPlayer.avatarUrl,
         rankScore: blackPlayer.rankScore,
+        isBot: blackIsBot,
       },
       whitePlayer: {
         openid: whitePlayer.openid,
         nickName: whitePlayer.nickName,
         avatarUrl: whitePlayer.avatarUrl,
         rankScore: whitePlayer.rankScore,
+        isBot: whiteIsBot,
       },
       timeLimit: gameConfig.moveTimeout,
     },
@@ -329,20 +356,49 @@ async function startGame(blackPlayer, whitePlayer, roomType) {
 
   broadcastToGame(gameId, startMsg);
 
-  // 启动第一回合超时
-  engine.startTurnTimer((color) => {
-    handleTimeout(gameId, color);
-  });
+  // 统一起始回合流转：真人先手→正常超时；机器人先手→AI调度+兜底超时
+  restartTurnFlow(gameId, engine);
+}
+
+/**
+ * 统一回合流转：在一次操作/超时处理后，决定下一回合如何驱动。
+ * - 若下一回合玩家是机器人：立即调度其 AI 决策（1-5s 内行动），并启动一个
+ *   较长的兜底超时（防止 AI 异常导致卡死）；AI 正常时先于兜底超时行动。
+ * - 若下一回合玩家是真人：启动正常操作超时（moveTimeout）。
+ */
+function restartTurnFlow(gameId, engine) {
+  if (engine.stage === Stage.SETTLED) return;
+  engine.clearTimer();
+  const currentUid = engine.getCurrentPlayerUid();
+  if (robot.robotPool.has(currentUid)) {
+    // 机器人回合：AI 主动调度 + 兜底超时
+    const fallback = (gameConfig.robot && gameConfig.robot.fallbackTimeout) || 8000;
+    engine.startTurnTimer((c) => handleTimeout(gameId, c), fallback);
+    robot.scheduleRobotMove(currentUid, engine);
+  } else {
+    engine.startTurnTimer((c) => handleTimeout(gameId, c));
+  }
 }
 
 /** 处理回合超时 */
 function handleTimeout(gameId, color) {
   const engine = gameSessions.get(gameId);
   if (!engine || engine.stage === Stage.SETTLED) return;
-
-  const result = engine.autoTimeout(color);
+  // 防止对"已过期"的回合操作（例如机器人 AI 已把回合切走，超时回调才触发）
+  if (engine.currentTurn !== color) return;
 
   const openid = color === 1 ? engine.blackPlayer.openid : engine.whitePlayer.openid;
+
+  // 机器人超时：保持原有自动逻辑（理论上机器人由自身驱动，几乎不会触发）
+  // 真人超时：采用机器人同款"初级智能 + 随机"决策进行代管，避免套路单一
+  const isBot = robot.robotPool.has(openid);
+  let result;
+
+  if (isBot) {
+    result = engine.autoTimeout(color);
+  } else {
+    result = autoTimeoutSmart(gameId, engine, color, openid);
+  }
 
   // 仅通知当前超时的那一方（对方无需提示）
   sendToPlayer(openid, {
@@ -358,16 +414,69 @@ function handleTimeout(gameId, color) {
   // 广播操作结果
   broadcastToGame(gameId, buildBroadcastMsg(engine, result, openid));
 
-  // 如果结算
+  // 如果结算：必须先广播 game_settle 再 finalizeGame，
+  // 否则客户端收不到结算消息，会卡在原阶段直到用户再次操作触发 error
   if (result.settled) {
+    broadcastToGame(gameId, { cmd: 'game_settle', data: result });
     finalizeGame(gameId, result);
     return;
   }
 
-  // 启动下一回合超时
-  engine.startTurnTimer((c) => {
-    handleTimeout(gameId, c);
-  });
+  // 统一下一回合流转（真人→正常超时；机器人→AI调度+兜底超时）
+  restartTurnFlow(gameId, engine);
+}
+
+/**
+ * 真人超时的"智能代管"：复用机器人 AI 决策，而非简单取第一个合法位置。
+ * 连续超时计数与 engine.autoTimeout 一致（连续 3 次判负）。
+ */
+function autoTimeoutSmart(gameId, engine, color, openid) {
+  engine.consecutiveTimeouts[color]++;
+
+  // 连续 3 次超时 → 判负（与原逻辑一致）
+  if (engine.consecutiveTimeouts[color] >= gameConfig.timeoutForfeit) {
+    const winner = color === BLACK ? WHITE : BLACK;
+    const settle = engine.settleGame(
+      winner === BLACK ? 'black' : 'white',
+      'timeout'
+    );
+    return {
+      auto: true,
+      consecutiveTimeouts: engine.consecutiveTimeouts[color],
+      ...settle,
+    };
+  }
+
+  const decision = robotAI.decideAction(engine, color);
+  let opResult;
+
+  if (!decision || decision.type === 'none') {
+    // 无决策（极端情况），退回原生自动逻辑兜底
+    opResult = engine.autoTimeout(color);
+  } else {
+    switch (decision.type) {
+      case 'place':
+        opResult = engine.placePiece(openid, decision.action.r, decision.action.c);
+        break;
+      case 'capture':
+        opResult = engine.capturePiece(openid, decision.action.r, decision.action.c);
+        break;
+      case 'skip_capture':
+        opResult = engine.skipLinkedCapture(openid);
+        break;
+      case 'move':
+        opResult = engine.movePiece(openid, decision.action.fromR, decision.action.fromC, decision.action.toR, decision.action.toC);
+        break;
+      default:
+        opResult = engine.autoTimeout(color);
+    }
+  }
+
+  return {
+    auto: true,
+    consecutiveTimeouts: engine.consecutiveTimeouts[color],
+    ...opResult,
+  };
 }
 
 /** 处理玩家掉线 */
@@ -459,6 +568,15 @@ async function handleGameAction(openid, cmd, data) {
       result = engine.requestDraw(openid);
       if (result.success && result.drawRequestBy) {
         const opponentUid = getOpponentUid(engine, openid);
+        // 机器人对手：自动拒绝求和，不给刷分机会
+        if (robot.robotPool.has(opponentUid)) {
+          result = engine.respondDraw(opponentUid, false);
+          if (result.success && result.drawRejected) {
+            sendToPlayer(openid, { cmd: 'draw_rejected', data: { by: opponentUid } });
+            engine.startTurnTimer((c) => { handleTimeout(gameId, c); });
+          }
+          return;
+        }
         sendToPlayer(opponentUid, {
           cmd: 'draw_request',
           data: {
@@ -503,12 +621,9 @@ async function handleGameAction(openid, cmd, data) {
   // 广播操作结果
   broadcastToGame(gameId, buildBroadcastMsg(engine, result, openid));
 
-  // 启动下一回合超时
+  // 统一下一回合流转（真人→正常超时；机器人→AI调度+兜底超时）
   if (engine.stage !== Stage.SETTLED) {
-    engine.clearTimer();
-    engine.startTurnTimer((c) => {
-      handleTimeout(gameId, c);
-    });
+    restartTurnFlow(gameId, engine);
   }
 }
 
@@ -574,6 +689,12 @@ async function finalizeGame(gameId, settleResult) {
   if (!engine) return;
 
   engine.clearTimer();
+
+  // 标记参战机器人为空闲，便于下次匹配复用
+  for (const openid of [engine.blackPlayer.openid, engine.whitePlayer.openid]) {
+    const info = robot.robotPool.get(openid);
+    if (info) info.busy = false;
+  }
 
   // 更新双方战绩
   const blackResult = settleResult.result === 'black' ? 'win'
@@ -656,6 +777,7 @@ module.exports = {
   startGame,
   handleGameAction,
   handlePlayerDisconnect,
+  handleTimeout,
   finalizeGame,
   generateGameId,
 };

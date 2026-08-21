@@ -114,13 +114,13 @@ class GameEngine {
     }
   }
 
-  /** 启动回合超时计时器，cb 为超时回调（系统自动操作） */
-  startTurnTimer(cb) {
+  /** 启动回合超时计时器，cb 为超时回调（系统自动操作），duration 可选覆盖默认超时时长 */
+  startTurnTimer(cb, duration) {
     this.clearTimer();
     this.turnStartTime = Date.now();
     this.timeoutTimer = setTimeout(() => {
       cb(this.currentTurn);
-    }, gameConfig.moveTimeout);
+    }, duration || gameConfig.moveTimeout);
   }
 
   /** 获取剩余时间（毫秒） */

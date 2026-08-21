@@ -54,6 +54,16 @@ function touch(x, y) {
   if (current && current.onTouch) current.onTouch(x, y);
 }
 
+/** 触摸移动转发（用于列表拖动等） */
+function touchMove(x, y) {
+  if (current && current.onTouchMove) current.onTouchMove(x, y);
+}
+
+/** 触摸结束转发 */
+function touchEnd() {
+  if (current && current.onTouchEnd) current.onTouchEnd();
+}
+
 /** WebSocket 消息转发 */
 function dispatchWs(cmd, data) {
   if (current && current.onWs) current.onWs(cmd, data);
@@ -66,5 +76,7 @@ module.exports = {
   getCurrentName,
   draw,
   touch,
+  touchMove,
+  touchEnd,
   dispatchWs,
 };
