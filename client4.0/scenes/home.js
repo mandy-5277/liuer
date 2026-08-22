@@ -867,14 +867,22 @@ function cropImageToSquare(tempPath, cb) {
     const sx = (img.width - side) / 2;
     const sy = (img.height - side) / 2;
     const OUT = 256;
-    const cvs = wx.createOffscreenCanvas({ type: '2d', width: OUT, height: OUT });
+    // 真机基础库不支持 wx.createOffscreenCanvas，统一用 wx.createCanvas 创建离屏 canvas
+    let cvs = null;
+    try { cvs = wx.createCanvas(); } catch (e) { cvs = null; }
+    if (!cvs || typeof cvs.getContext !== 'function') {
+      cb(null, tempPath); // 裁剪不可用则降级用原图，避免卡死
+      return;
+    }
+    cvs.width = OUT;
+    cvs.height = OUT;
     const ctx = cvs.getContext('2d');
     ctx.clearRect(0, 0, OUT, OUT);
     ctx.drawImage(img, sx, sy, side, side, 0, 0, OUT, OUT);
     wx.canvasToTempFilePath({
       canvas: cvs, x: 0, y: 0, width: OUT, height: OUT, destWidth: OUT, destHeight: OUT,
       success: (r) => cb(null, r.tempFilePath),
-      fail: (e) => cb(e || new Error('crop fail')),
+      fail: (e) => cb(null, tempPath), // 导出失败降级用原图
     });
   };
   img.onerror = () => cb(new Error('image load fail'));

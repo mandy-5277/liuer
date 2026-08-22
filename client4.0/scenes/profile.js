@@ -840,7 +840,16 @@ function cropImageToSquare(tempPath, cb) {
     const sx = (img.width - side) / 2;
     const sy = (img.height - side) / 2;
     const OUT = 256; // 输出正方形边长
-    const cvs = wx.createOffscreenCanvas({ type: '2d', width: OUT, height: OUT });
+    // 注意：真机基础库不支持 wx.createOffscreenCanvas，统一用 wx.createCanvas 创建离屏 canvas
+    let cvs = null;
+    try { cvs = wx.createCanvas(); } catch (e) { cvs = null; }
+    if (!cvs || typeof cvs.getContext !== 'function') {
+      // 兜底：裁剪不可用则直接上传原图，避免卡在“处理中”
+      cb(null, tempPath);
+      return;
+    }
+    cvs.width = OUT;
+    cvs.height = OUT;
     const ctx = cvs.getContext('2d');
     ctx.clearRect(0, 0, OUT, OUT);
     ctx.drawImage(img, sx, sy, side, side, 0, 0, OUT, OUT);
@@ -848,7 +857,7 @@ function cropImageToSquare(tempPath, cb) {
       canvas: cvs,
       x: 0, y: 0, width: OUT, height: OUT, destWidth: OUT, destHeight: OUT,
       success: (r) => cb(null, r.tempFilePath),
-      fail: (e) => cb(e || new Error('crop fail')),
+      fail: (e) => cb(null, tempPath), // 导出失败也降级用原图，不卡死
     });
   };
   img.onerror = () => cb(new Error('image load fail'));
