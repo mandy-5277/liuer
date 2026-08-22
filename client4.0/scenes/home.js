@@ -862,37 +862,14 @@ function handleProfileSetupTouch(x, y) {
   }
 }
 
-/** 把任意图片裁剪为居中的正方形（取最短边），返回临时文件路径 */
-function cropImageToSquare(tempPath, cb) {
-  const img = wx.createImage();
-  img.onload = () => {
-    const side = Math.min(img.width, img.height);
-    const sx = (img.width - side) / 2;
-    const sy = (img.height - side) / 2;
-    const OUT = 256;
-    // 真机基础库不支持 wx.createOffscreenCanvas，统一用 wx.createCanvas 创建离屏 canvas
-    let cvs = null;
-    try { cvs = wx.createCanvas(); } catch (e) { cvs = null; }
-    if (!cvs || typeof cvs.getContext !== 'function') {
-      cb(null, tempPath); // 裁剪不可用则降级用原图，避免卡死
-      return;
-    }
-    cvs.width = OUT;
-    cvs.height = OUT;
-    const ctx = cvs.getContext('2d');
-    ctx.clearRect(0, 0, OUT, OUT);
-    ctx.drawImage(img, sx, sy, side, side, 0, 0, OUT, OUT);
-    wx.canvasToTempFilePath({
-      canvas: cvs, x: 0, y: 0, width: OUT, height: OUT, destWidth: OUT, destHeight: OUT,
-      success: (r) => cb(null, r.tempFilePath),
-      fail: (e) => cb(null, tempPath), // 导出失败降级用原图
-    });
-  };
-  img.onerror = () => cb(new Error('image load fail'));
-  img.src = tempPath;
-}
+/**
+ * 小游戏环境下没有 wx.canvasToTempFilePath（该 API 仅小程序可用），
+ * 也无法把离屏 canvas 可靠导出为临时文件。因此头像上传直接读取
+ * chooseMedia 返回的 tempFilePath 原图转 base64 上传；
+ * 展示时的正方形/圆形裁切由前端 drawAvatar 在绘制阶段完成。
+ */
 
-/** 选择相册图片并上传，成功后作为头像（裁剪为正方形） */
+/** 选择相册图片并上传，成功后作为头像 */
 function uploadAvatar() {
   wx.chooseMedia({
     count: 1,
@@ -904,37 +881,29 @@ function uploadAvatar() {
       const tempPath = file && file.tempFilePath;
       if (!tempPath) return;
       wx.showLoading({ title: '处理中', mask: true });
-      cropImageToSquare(tempPath, (cropErr, sqPath) => {
-        if (cropErr || !sqPath) {
-          wx.hideLoading();
-          console.error('[home.uploadAvatar] 裁剪失败', cropErr);
-          wx.showToast({ title: '图片处理失败', icon: 'none' });
-          return;
-        }
-        wx.getFileSystemManager().readFile({
-          filePath: sqPath,
-          encoding: 'base64',
-          success: (fr) => {
-            wx.request({
-              url: SERVER_BASE + '/api/avatar/upload',
-              method: 'POST',
-              header: { 'Content-Type': 'application/json' },
-              data: { openid: state.openid || '', base64: fr.data || '' },
-              success: (rr) => {
-                wx.hideLoading();
-                if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
-                  profileAvatar = rr.data.url;
-                  profileAvatarIndex = -1;
-                  wx.showToast({ title: '头像已更新', icon: 'success' });
-                } else {
-                  wx.showToast({ title: '上传失败', icon: 'none' });
-                }
-              },
-              fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
-            });
-          },
-          fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
-        });
+      wx.getFileSystemManager().readFile({
+        filePath: tempPath,
+        encoding: 'base64',
+        success: (fr) => {
+          wx.request({
+            url: SERVER_BASE + '/api/avatar/upload',
+            method: 'POST',
+            header: { 'Content-Type': 'application/json' },
+            data: { openid: state.openid || '', base64: fr.data || '' },
+            success: (rr) => {
+              wx.hideLoading();
+              if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
+                profileAvatar = rr.data.url;
+                profileAvatarIndex = -1;
+                wx.showToast({ title: '头像已更新', icon: 'success' });
+              } else {
+                wx.showToast({ title: '上传失败', icon: 'none' });
+              }
+            },
+            fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+          });
+        },
+        fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
       });
     },
     fail: (err) => {

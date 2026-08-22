@@ -832,37 +832,12 @@ function handleAvatarPickerTouch(x, y) {
   return false;
 }
 
-/** 把任意图片裁剪为居中的正方形（取最短边），返回临时文件路径（base64 走 canvas 转） */
-function cropImageToSquare(tempPath, cb) {
-  const img = wx.createImage();
-  img.onload = () => {
-    const side = Math.min(img.width, img.height);
-    const sx = (img.width - side) / 2;
-    const sy = (img.height - side) / 2;
-    const OUT = 256; // 输出正方形边长
-    // 注意：真机基础库不支持 wx.createOffscreenCanvas，统一用 wx.createCanvas 创建离屏 canvas
-    let cvs = null;
-    try { cvs = wx.createCanvas(); } catch (e) { cvs = null; }
-    if (!cvs || typeof cvs.getContext !== 'function') {
-      // 兜底：裁剪不可用则直接上传原图，避免卡在“处理中”
-      cb(null, tempPath);
-      return;
-    }
-    cvs.width = OUT;
-    cvs.height = OUT;
-    const ctx = cvs.getContext('2d');
-    ctx.clearRect(0, 0, OUT, OUT);
-    ctx.drawImage(img, sx, sy, side, side, 0, 0, OUT, OUT);
-    wx.canvasToTempFilePath({
-      canvas: cvs,
-      x: 0, y: 0, width: OUT, height: OUT, destWidth: OUT, destHeight: OUT,
-      success: (r) => cb(null, r.tempFilePath),
-      fail: (e) => cb(null, tempPath), // 导出失败也降级用原图，不卡死
-    });
-  };
-  img.onerror = () => cb(new Error('image load fail'));
-  img.src = tempPath;
-}
+/**
+ * 小游戏环境下没有 wx.canvasToTempFilePath（该 API 仅小程序可用），
+ * 也无法把离屏 canvas 可靠导出为临时文件。因此头像上传直接读取
+ * chooseMedia 返回的 tempFilePath 原图转 base64 上传即可；
+ * 展示时的正方形/圆形裁切由前端 drawAvatar 在绘制阶段完成。
+ */
 
 /** 选择相册图片并上传，成功后作为头像（小游戏使用 wx.chooseMedia） */
 function uploadAvatar() {
@@ -884,40 +859,32 @@ function uploadAvatar() {
         const tempPath = file && file.tempFilePath;
         if (!tempPath) { wx.showToast({ title: '未选择图片', icon: 'none' }); return; }
         wx.showLoading({ title: '处理中', mask: true });
-        // 第一步：裁剪为正方形
-        cropImageToSquare(tempPath, (cropErr, sqPath) => {
-          if (cropErr || !sqPath) {
-            wx.hideLoading();
-            console.error('[uploadAvatar] 裁剪失败', cropErr);
-            wx.showToast({ title: '图片处理失败', icon: 'none' });
-            return;
-          }
-          wx.getFileSystemManager().readFile({
-            filePath: sqPath,
-            encoding: 'base64',
-            success: (fr) => {
-              wx.request({
-                url: SERVER_BASE + '/api/avatar/upload',
-                method: 'POST',
-                header: { 'Content-Type': 'application/json' },
-                data: { openid: state.openid || '', base64: fr.data || '' },
-                success: (rr) => {
-                  wx.hideLoading();
-                  if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
-                    const avatarUrl = rr.data.url;
-                    const nickName = (state.userInfo && state.userInfo.nickName) || '';
-                    saveProfile(nickName, avatarUrl);
-                    wsManager.send('update_profile', { nickName, avatarUrl });
-                    wx.showToast({ title: '头像已更新', icon: 'success' });
-                  } else {
-                    wx.showToast({ title: '上传失败', icon: 'none' });
-                  }
-                },
-                fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
-              });
-            },
-            fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
-          });
+        // 直接读取所选图片转 base64 上传（小游戏无需、也无法走 canvas 裁剪导出）
+        wx.getFileSystemManager().readFile({
+          filePath: tempPath,
+          encoding: 'base64',
+          success: (fr) => {
+            wx.request({
+              url: SERVER_BASE + '/api/avatar/upload',
+              method: 'POST',
+              header: { 'Content-Type': 'application/json' },
+              data: { openid: state.openid || '', base64: fr.data || '' },
+              success: (rr) => {
+                wx.hideLoading();
+                if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
+                  const avatarUrl = rr.data.url;
+                  const nickName = (state.userInfo && state.userInfo.nickName) || '';
+                  saveProfile(nickName, avatarUrl);
+                  wsManager.send('update_profile', { nickName, avatarUrl });
+                  wx.showToast({ title: '头像已更新', icon: 'success' });
+                } else {
+                  wx.showToast({ title: '上传失败', icon: 'none' });
+                }
+              },
+              fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+            });
+          },
+          fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
         });
       },
       fail: (err) => {
