@@ -832,12 +832,38 @@ function handleAvatarPickerTouch(x, y) {
   return false;
 }
 
+/** 把任意图片裁剪为居中的正方形（取最短边），返回临时文件路径（base64 走 canvas 转） */
+function cropImageToSquare(tempPath, cb) {
+  const img = wx.createImage();
+  img.onload = () => {
+    const side = Math.min(img.width, img.height);
+    const sx = (img.width - side) / 2;
+    const sy = (img.height - side) / 2;
+    const OUT = 256; // 输出正方形边长
+    const cvs = wx.createOffscreenCanvas({ type: '2d', width: OUT, height: OUT });
+    const ctx = cvs.getContext('2d');
+    ctx.clearRect(0, 0, OUT, OUT);
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, OUT, OUT);
+    wx.canvasToTempFilePath({
+      canvas: cvs,
+      x: 0, y: 0, width: OUT, height: OUT, destWidth: OUT, destHeight: OUT,
+      success: (r) => cb(null, r.tempFilePath),
+      fail: (e) => cb(e || new Error('crop fail')),
+    });
+  };
+  img.onerror = () => cb(new Error('image load fail'));
+  img.src = tempPath;
+}
+
 /** 选择相册图片并上传，成功后作为头像（小游戏使用 wx.chooseMedia） */
 function uploadAvatar() {
   if (typeof wx.chooseMedia !== 'function') {
     wx.showToast({ title: '当前环境不支持相册选择', icon: 'none' });
     return;
   }
+  // 先关闭浮层再调起相册：浮层上的全屏 mask 会干扰 chooseMedia 弹窗，
+  // 这是"第二次点上传失败"的根因。关闭后重绘一帧再调起。
+  showAvatarPicker = false;
   const doPick = () => {
     wx.chooseMedia({
       count: 1,
@@ -848,37 +874,46 @@ function uploadAvatar() {
         const file = res.tempFiles && res.tempFiles[0];
         const tempPath = file && file.tempFilePath;
         if (!tempPath) { wx.showToast({ title: '未选择图片', icon: 'none' }); return; }
-        wx.showLoading({ title: '上传中', mask: true });
-        wx.getFileSystemManager().readFile({
-          filePath: tempPath,
-          encoding: 'base64',
-          success: (fr) => {
-            wx.request({
-              url: SERVER_BASE + '/api/avatar/upload',
-              method: 'POST',
-              header: { 'Content-Type': 'application/json' },
-              data: { openid: state.openid || '', base64: fr.data || '' },
-              success: (rr) => {
-                wx.hideLoading();
-                if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
-                  const avatarUrl = rr.data.url;
-                  const nickName = (state.userInfo && state.userInfo.nickName) || '';
-                  saveProfile(nickName, avatarUrl);
-                  wsManager.send('update_profile', { nickName, avatarUrl });
-                  wx.showToast({ title: '头像已更新', icon: 'success' });
-                  showAvatarPicker = false;
-                } else {
-                  wx.showToast({ title: '上传失败', icon: 'none' });
-                }
-              },
-              fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
-            });
-          },
-          fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
+        wx.showLoading({ title: '处理中', mask: true });
+        // 第一步：裁剪为正方形
+        cropImageToSquare(tempPath, (cropErr, sqPath) => {
+          if (cropErr || !sqPath) {
+            wx.hideLoading();
+            console.error('[uploadAvatar] 裁剪失败', cropErr);
+            wx.showToast({ title: '图片处理失败', icon: 'none' });
+            return;
+          }
+          wx.getFileSystemManager().readFile({
+            filePath: sqPath,
+            encoding: 'base64',
+            success: (fr) => {
+              wx.request({
+                url: SERVER_BASE + '/api/avatar/upload',
+                method: 'POST',
+                header: { 'Content-Type': 'application/json' },
+                data: { openid: state.openid || '', base64: fr.data || '' },
+                success: (rr) => {
+                  wx.hideLoading();
+                  if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
+                    const avatarUrl = rr.data.url;
+                    const nickName = (state.userInfo && state.userInfo.nickName) || '';
+                    saveProfile(nickName, avatarUrl);
+                    wsManager.send('update_profile', { nickName, avatarUrl });
+                    wx.showToast({ title: '头像已更新', icon: 'success' });
+                  } else {
+                    wx.showToast({ title: '上传失败', icon: 'none' });
+                  }
+                },
+                fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+              });
+            },
+            fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
+          });
         });
       },
       fail: (err) => {
         const msg = (err && err.errMsg) || '';
+        console.error('[uploadAvatar] chooseMedia fail:', msg);
         // 用户主动取消：静默
         if (msg.indexOf('cancel') >= 0) return;
         // 权限/授权类错误（覆盖各机型不同文案）：引导去设置开启相册权限
@@ -892,12 +927,13 @@ function uploadAvatar() {
           });
           return;
         }
-        // 其它异常：提示后关闭，避免重复弹窗卡死
+        // 其它异常：打印真实错误，便于定位
         wx.showToast({ title: '选择图片失败，请重试', icon: 'none' });
       },
     });
   };
-  doPick();
+  // 等当前帧渲染完（浮层已隐藏）再调起相册，避免 mask 冲突
+  setTimeout(doPick, 60);
 }
 
 /** 点击昵称：输入新昵称 */

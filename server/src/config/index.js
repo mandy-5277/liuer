@@ -37,7 +37,7 @@ module.exports = {
     maxPieces: 36,         // 总下子位
     moveTimeout: 15000,    // 操作超时 15秒（毫秒）
     timeoutForfeit: 3,     // 连续超时判负次数
-    drawNoCatchRounds: 5,  // 无有效揪回合数和棋
+    drawNoCatchRounds: 0,  // 无有效揪回合数和棋（0=关闭自动和棋，仅保留双方主动求和）
     drawRequestCooldown: 15000, // 求和冷却 15秒
     roomExpire: 60000,     // 房间过期 60秒
     reconnectWindow: 30000, // 断线重连窗口30秒，超时判掉线方负

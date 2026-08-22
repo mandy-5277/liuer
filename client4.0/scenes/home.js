@@ -859,9 +859,30 @@ function handleProfileSetupTouch(x, y) {
   }
 }
 
-/** 选择相册图片并上传，成功后作为头像 */
+/** 把任意图片裁剪为居中的正方形（取最短边），返回临时文件路径 */
+function cropImageToSquare(tempPath, cb) {
+  const img = wx.createImage();
+  img.onload = () => {
+    const side = Math.min(img.width, img.height);
+    const sx = (img.width - side) / 2;
+    const sy = (img.height - side) / 2;
+    const OUT = 256;
+    const cvs = wx.createOffscreenCanvas({ type: '2d', width: OUT, height: OUT });
+    const ctx = cvs.getContext('2d');
+    ctx.clearRect(0, 0, OUT, OUT);
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, OUT, OUT);
+    wx.canvasToTempFilePath({
+      canvas: cvs, x: 0, y: 0, width: OUT, height: OUT, destWidth: OUT, destHeight: OUT,
+      success: (r) => cb(null, r.tempFilePath),
+      fail: (e) => cb(e || new Error('crop fail')),
+    });
+  };
+  img.onerror = () => cb(new Error('image load fail'));
+  img.src = tempPath;
+}
+
+/** 选择相册图片并上传，成功后作为头像（裁剪为正方形） */
 function uploadAvatar() {
-  // 小游戏环境不支持 wx.chooseImage，需用 wx.chooseMedia
   wx.chooseMedia({
     count: 1,
     mediaType: ['image'],
@@ -871,34 +892,46 @@ function uploadAvatar() {
       const file = res.tempFiles && res.tempFiles[0];
       const tempPath = file && file.tempFilePath;
       if (!tempPath) return;
-      wx.showLoading({ title: '上传中', mask: true });
-      // 转 base64
-      wx.getFileSystemManager().readFile({
-        filePath: tempPath,
-        encoding: 'base64',
-        success: (fr) => {
-          wx.request({
-            url: SERVER_BASE + '/api/avatar/upload',
-            method: 'POST',
-            header: { 'Content-Type': 'application/json' },
-            data: { openid: state.openid || '', base64: fr.data || '' },
-            success: (rr) => {
-              wx.hideLoading();
-              if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
-                profileAvatar = rr.data.url;
-                profileAvatarIndex = -1;
-                wx.showToast({ title: '头像已更新', icon: 'success' });
-              } else {
-                wx.showToast({ title: '上传失败', icon: 'none' });
-              }
-            },
-            fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
-          });
-        },
-        fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
+      wx.showLoading({ title: '处理中', mask: true });
+      cropImageToSquare(tempPath, (cropErr, sqPath) => {
+        if (cropErr || !sqPath) {
+          wx.hideLoading();
+          console.error('[home.uploadAvatar] 裁剪失败', cropErr);
+          wx.showToast({ title: '图片处理失败', icon: 'none' });
+          return;
+        }
+        wx.getFileSystemManager().readFile({
+          filePath: sqPath,
+          encoding: 'base64',
+          success: (fr) => {
+            wx.request({
+              url: SERVER_BASE + '/api/avatar/upload',
+              method: 'POST',
+              header: { 'Content-Type': 'application/json' },
+              data: { openid: state.openid || '', base64: fr.data || '' },
+              success: (rr) => {
+                wx.hideLoading();
+                if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
+                  profileAvatar = rr.data.url;
+                  profileAvatarIndex = -1;
+                  wx.showToast({ title: '头像已更新', icon: 'success' });
+                } else {
+                  wx.showToast({ title: '上传失败', icon: 'none' });
+                }
+              },
+              fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+            });
+          },
+          fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
+        });
       });
     },
-    fail: (err) => { wx.showToast({ title: '取消选择', icon: 'none' }); },
+    fail: (err) => {
+      const msg = (err && err.errMsg) || '';
+      console.error('[home.uploadAvatar] chooseMedia fail:', msg);
+      if (msg.indexOf('cancel') >= 0) return;
+      wx.showToast({ title: '选择图片失败，请重试', icon: 'none' });
+    },
   });
 }
 

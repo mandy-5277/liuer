@@ -474,12 +474,9 @@ class GameEngine {
     }
 
     // 无新构型 → 直接切换对手
+    // 注：已取消"连续N回合无有效揪自动和棋"(draw_five)。该规则会在走子阶段
+    // 正常对局中误判平局并双-1，影响玩家体验。现仅保留双方主动求和(draw_agree)。
     this.noCatchRoundCount++;
-
-    // 和棋检测：连续5回合无有效揪
-    if (this.noCatchRoundCount >= gameConfig.drawNoCatchRounds) {
-      return this.settleGame(GameResult.DRAW, EndReason.DRAW_FIVE);
-    }
 
     this.currentTurn = enemyColor;
 
