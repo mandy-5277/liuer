@@ -908,8 +908,9 @@ function uploadAvatar() {
       },
     });
   };
-  // 等当前帧渲染完（浮层已隐藏）再调起相册，避免 mask 冲突
-  setTimeout(doPick, 60);
+  // 先确认隐私授权（微信要求调用相册等接口前用户已同意隐私协议），
+  // 再等当前帧渲染完（浮层已隐藏）调起相册，避免 mask 冲突。
+  require('../utils/privacy').ensurePrivacyAuthorized(() => setTimeout(doPick, 60));
 }
 
 /** 点击昵称：输入新昵称 */

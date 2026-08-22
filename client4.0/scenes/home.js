@@ -871,6 +871,8 @@ function handleProfileSetupTouch(x, y) {
 
 /** 选择相册图片并上传，成功后作为头像 */
 function uploadAvatar() {
+  // 先确认隐私授权（微信要求调用相册等接口前用户已同意隐私协议）
+  require('../utils/privacy').ensurePrivacyAuthorized(() => {
   wx.chooseMedia({
     count: 1,
     mediaType: ['image'],
@@ -912,6 +914,7 @@ function uploadAvatar() {
       if (msg.indexOf('cancel') >= 0) return;
       wx.showToast({ title: '选择图片失败，请重试', icon: 'none' });
     },
+  });
   });
 }
 

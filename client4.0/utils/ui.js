@@ -158,7 +158,8 @@ function drawAvatar(ctx, opts) {
   } else if (avatar && /^https?:\/\//.test(avatar)) {
     const img = loadAvatarImage(avatar);
     if (img && img.width > 0) {
-      const s = Math.max(img.width, img.height);
+      // 取最短边居中裁剪为正方形，避免横/竖图在圆形内变形或留边
+      const s = Math.min(img.width, img.height);
       const sx = (img.width - s) / 2;
       const sy = (img.height - s) / 2;
       ctx.drawImage(img, sx, sy, s, s, x - r, y - r, r * 2, r * 2);
