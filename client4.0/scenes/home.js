@@ -883,30 +883,44 @@ function uploadAvatar() {
       const tempPath = file && file.tempFilePath;
       if (!tempPath) return;
       wx.showLoading({ title: '处理中', mask: true });
-      wx.getFileSystemManager().readFile({
-        filePath: tempPath,
-        encoding: 'base64',
-        success: (fr) => {
-          wx.request({
-            url: SERVER_BASE + '/api/avatar/upload',
-            method: 'POST',
-            header: { 'Content-Type': 'application/json' },
-            data: { openid: state.openid || '', base64: fr.data || '' },
-            success: (rr) => {
-              wx.hideLoading();
-              if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
-                profileAvatar = rr.data.url;
-                profileAvatarIndex = -1;
-                wx.showToast({ title: '头像已更新', icon: 'success' });
-              } else {
-                wx.showToast({ title: '上传失败', icon: 'none' });
-              }
-            },
-            fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
-          });
-        },
-        fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
-      });
+      const readAndUpload = (finalPath) => {
+        wx.getFileSystemManager().readFile({
+          filePath: finalPath,
+          encoding: 'base64',
+          success: (fr) => {
+            wx.request({
+              url: SERVER_BASE + '/api/avatar/upload',
+              method: 'POST',
+              header: { 'Content-Type': 'application/json' },
+              data: { openid: state.openid || '', base64: fr.data || '' },
+              success: (rr) => {
+                wx.hideLoading();
+                if (rr.statusCode === 200 && rr.data && rr.data.ok && rr.data.url) {
+                  profileAvatar = rr.data.url;
+                  profileAvatarIndex = -1;
+                  wx.showToast({ title: '头像已更新', icon: 'success' });
+                } else {
+                  wx.showToast({ title: '上传失败', icon: 'none' });
+                }
+              },
+              fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },
+            });
+          },
+          fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
+        });
+      };
+      // 优先压缩，避免 base64 过大触发服务端 413
+      if (typeof wx.compressImage === 'function') {
+        wx.compressImage({
+          src: tempPath,
+          quality: 70,
+          compressedWidth: 512,
+          success: (cr) => readAndUpload(cr.tempFilePath || tempPath),
+          fail: () => readAndUpload(tempPath),
+        });
+      } else {
+        readAndUpload(tempPath);
+      }
     },
     fail: (err) => {
       const msg = (err && err.errMsg) || '';

@@ -30,7 +30,8 @@ const redis = require('./db/redis');
 // ========== Express HTTP 服务 ==========
 
 const app = express();
-app.use(express.json());
+// 头像上传走 base64，默认 100kb 限制会触发 413，放宽到 10mb
+app.use(express.json({ limit: '10mb' }));
 
 // 静态页面（隐私政策 / 服务协议，供小游戏备案链接访问）
 // 访问路径：https://liuer.xin/privacy.html 和 https://liuer.xin/terms.html

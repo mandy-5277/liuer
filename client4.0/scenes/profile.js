@@ -859,9 +859,10 @@ function uploadAvatar() {
         const tempPath = file && file.tempFilePath;
         if (!tempPath) { wx.showToast({ title: '未选择图片', icon: 'none' }); return; }
         wx.showLoading({ title: '处理中', mask: true });
-        // 直接读取所选图片转 base64 上传（小游戏无需、也无法走 canvas 裁剪导出）
-        wx.getFileSystemManager().readFile({
-          filePath: tempPath,
+        // 先压缩，避免 base64 体积过大触发服务端 413
+        const readAndUpload = (finalPath) => {
+          wx.getFileSystemManager().readFile({
+          filePath: finalPath,
           encoding: 'base64',
           success: (fr) => {
             wx.request({
@@ -885,7 +886,20 @@ function uploadAvatar() {
             });
           },
           fail: () => { wx.hideLoading(); wx.showToast({ title: '读取图片失败', icon: 'none' }); },
-        });
+          });
+        };
+        // 优先压缩（compressImage 小游戏可用），失败则直接上传原图
+        if (typeof wx.compressImage === 'function') {
+          wx.compressImage({
+            src: tempPath,
+            quality: 70,
+            compressedWidth: 512,
+            success: (cr) => readAndUpload(cr.tempFilePath || tempPath),
+            fail: () => readAndUpload(tempPath),
+          });
+        } else {
+          readAndUpload(tempPath);
+        }
       },
       fail: (err) => {
         const msg = (err && err.errMsg) || '';
