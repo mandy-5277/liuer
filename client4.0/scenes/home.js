@@ -559,6 +559,13 @@ function onTouch(x, y) {
   // 微信用户信息授权浮层显示期间，禁用所有其它按钮，避免与授权按钮重叠触发
   if (state.authPending) return;
 
+  // 匹配中：除"取消匹配"按钮外，其他所有按钮（含底部导航/好友/规则/头像等）一律禁用，
+  // 避免误触跳转导致匹配弹窗消失、对局状态丢失。
+  if (overlay === 'matching') {
+    if (hit(rects.cancelMatch, x, y)) { wsManager.send('match_cancel'); overlay = null; }
+    return;
+  }
+
   // 底部导航优先判定（避免被"游戏规则"扩大区域误触）
   if (rects.bottomTabs) {
     for (const t of rects.bottomTabs) {
@@ -566,10 +573,6 @@ function onTouch(x, y) {
     }
   }
 
-  if (overlay === 'matching') {
-    if (hit(rects.cancelMatch, x, y)) { wsManager.send('match_cancel'); overlay = null; }
-    return;
-  }
   if (overlay === 'room') { handleRoomTouch(x, y); return; }
   if (overlay === 'energy') { handleEnergyTouch(x, y); return; }
   if (overlay === 'profileSetup') { handleProfileSetupTouch(x, y); return; }
