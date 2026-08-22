@@ -136,14 +136,16 @@ function drawList(ctx, listTop, listBottom) {
     drawText(ctx, '' + it.rank, 48, y + rowH / 2 - 4, {
       color: i < 3 ? PALETTE.gold : PALETTE.textDim, fontSize: 16, bold: true, baseline: 'middle', align: 'right',
     });
-    // 头像
+    // 头像：机器人统一显示 🤖 标识头像，便于玩家辨认陪练对手
+    const isBot = !!it.isBot;
     drawAvatar(ctx, {
       x: 78, y: y + (rowH - 8) / 2, r: 16,
-      label: (it.nickName || '').slice(0, 1), avatar: it.avatarUrl || '',
+      label: isBot ? '🤖' : (it.nickName || '').slice(0, 1),
+      avatar: isBot ? 'emoji:🤖' : (it.avatarUrl || ''),
     });
-    // 昵称
-    drawText(ctx, (it.nickName || '匿名玩家'), 100, y + rowH / 2 - 13, {
-      color: PALETTE.text, fontSize: 16, bold: true, baseline: 'middle',
+    // 昵称：机器人加 🤖 前缀标识
+    drawText(ctx, (isBot ? '🤖 ' : '') + (it.nickName || '匿名玩家'), 100, y + rowH / 2 - 13, {
+      color: isBot ? PALETTE.textDim : PALETTE.text, fontSize: 16, bold: true, baseline: 'middle',
     });
     // 段位
     drawText(ctx, it.rankName || '', 100, y + rowH / 2 + 9, {

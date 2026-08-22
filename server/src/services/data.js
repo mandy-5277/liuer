@@ -133,7 +133,8 @@ async function getOrCreateUser(openid, userInfo = {}) {
     };
   }
 
-  const nickName = userInfo.nickName || '';
+  // 规避空昵称账号生成：首次创建若昵称为空，给默认昵称，避免产生无法辨认的脏记录
+  const nickName = userInfo.nickName || '小六玩家';
   const avatarUrl = userInfo.avatarUrl || '';
   const unionid = userInfo.unionid || null;
   const rankScore = 0;
@@ -206,11 +207,10 @@ async function createBotUser() {
   const cfg = gameConfig.robot || {};
   const prefix = cfg.prefix || 'bot_';
   const nickNames = cfg.nickNames || ['机器人'];
-  const avatarUrls = cfg.avatarUrls || [''];
-
+  // 机器人统一使用特殊标记 'bot'，前端据此绘制机器人头像（区别于真人）
+  const avatarUrl = 'bot';
   const openid = prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const nickName = nickNames[Math.floor(Math.random() * nickNames.length)];
-  const avatarUrl = avatarUrls[Math.floor(Math.random() * avatarUrls.length)] || '';
   const rankScore = 0;
   const rankName = '初级小六';
 
@@ -305,6 +305,8 @@ async function getUserGames(openid, limit = 20, skip = 0) {
 
 async function getRankList(limit = 100, sortBy = 'score') {
   // sortBy='score' 按积分排；'winRate' 按胜率排（同分按积分兜底）
+  // 机器人(bot_ 前缀)保留在排行榜中，以便玩家识别陪练对手；通过 isBot 字段标识。
+  const botPrefix = (gameConfig.robot && gameConfig.robot.prefix) || 'bot_';
   let rows;
   if (sortBy === 'winRate') {
     const sql = `
@@ -330,6 +332,7 @@ async function getRankList(limit = 100, sortBy = 'score') {
     openid: u.openid,
     nickName: u.nickName,
     avatarUrl: u.avatarUrl,
+    isBot: (u.openid || '').startsWith(botPrefix),
     rankScore: u.rankScore,
     rankName: u.rankName,
     winRate: typeof u.winRate === 'number' ? u.winRate : (function () {
