@@ -28,6 +28,7 @@ const game = {
   myResult: '', scoreChange: 0, drawRequestBy: '', drawRequestName: '',
   showDrawRequest: false, showRequestDraw: false, showGiveUpConfirm: false, showSettings: false, boardFlipped: false,
   timerText: '00:00', timeLow: false, timerProgress: 100,
+  reconnectRemaining: 0, // 对手掉线后判负倒计时（秒），>0 时显示非阻塞横幅
 };
 
 let boardGeo = { ox: 0, oy: 0, step: 0, size: 0 };
@@ -85,7 +86,7 @@ function onEnter(payload) {
     timerProgress: calcTimerProgress(remainingTime),
     catchNums: { black: 0, white: 0 }, board: [], boardPieces: [],
     legalCells: [], selectedPieceIndex: -1, skipAvailable: false,
-    showSettle: false, drawPaused: false, showDrawRequest: false, showRequestDraw: false, showGiveUpConfirm: false, showSettings: false,
+    showSettle: false, drawPaused: false, showDrawRequest: false, showRequestDraw: false, showGiveUpConfirm: false, showSettings: false, reconnectRemaining: 0,
   });
 
   updateBoardPieces(gameData.board || []);
@@ -120,7 +121,11 @@ function registerWs() {
   });
   wsManager.on('resource_update', onResourceUpdate);
   wsManager.on('error', onError);
-  wsManager.on('opponent_disconnected', () => wx.showToast({ title: '对手已掉线，30秒后判你胜', icon: 'none' }));
+  wsManager.on('opponent_disconnected', () => {
+    // 启动非阻塞倒计时横幅：30s 后判我方胜（与 reconnectWindow 一致）
+    game.reconnectRemaining = 30;
+    audio.playTick();
+  });
 }
 
 function removeWs() {
@@ -158,6 +163,11 @@ function onBoardUpdate(data) {
   updateBoardPieces(data.board || []);
   updateCatchNums(data.catchNums || { black: 0, white: 0 });
 
+  // 兜底：应揪数多于对方实际可揪棋子（剩余皆成型），多余次数作废并自动跳过
+  if (data.captureSkipped) {
+    wx.showToast({ title: '对方已无可揪棋子，揪子已自动跳过', icon: 'none' });
+  }
+
   // 音效：根据上一步操作类型播放（lastMove.player 是执子方 color，action 是 place/move/capture）
   const lm = data.lastMove;
   if (lm && typeof lm.action === 'string') {
@@ -183,6 +193,11 @@ function onStageChange(data) {
   });
   updateBoardPieces(data.board || []);
   updateCatchNums(data.catchNums || { black: 0, white: 0 });
+
+  // 兜底：进入揪子阶段时若某方应揪数多于对方实际可揪棋子，多余次数作废
+  if (data.captureSkipped) {
+    wx.showToast({ title: '对方已无可揪棋子，揪子已自动跳过', icon: 'none' });
+  }
 }
 
 function onLinkedCapture(data) {
@@ -200,6 +215,11 @@ function onLinkedCapture(data) {
   });
   updateBoardPieces(data.board || []);
   updateCatchNums(data.catchNums || { black: 0, white: 0 });
+
+  // 兜底：联动揪时对方已无可揪棋子，多余次数作废并自动跳过
+  if (data.captureSkipped) {
+    wx.showToast({ title: '对方已无可揪棋子，揪子已自动跳过', icon: 'none' });
+  }
 }
 
 function onDrawRejected(data) {
@@ -221,6 +241,8 @@ function onGameSettle(data) {
     console.log('[Match] 收到非当前对局的结算消息，已忽略:', data.gameId);
     return;
   }
+  // 结算后清除掉线倒计时横幅
+  game.reconnectRemaining = 0;
   const myColor = game.myColor;
   let myResult = '';
   let scoreChange = 0;
@@ -230,14 +252,32 @@ function onGameSettle(data) {
   else if (data.result === 'draw') { myResult = 'draw'; scoreChange = myColor === 1 ? (data.blackRatingChange || -1) : (data.whiteRatingChange || -1); }
   else { myResult = 'lose'; scoreChange = myColor === 1 ? (data.blackRatingChange || -3) : (data.whiteRatingChange || -3); }
 
+  // 步数上限和棋兜底提示（长期拉锯自动判和，不扣分）
+  if (endReason === 'stalemate') {
+    wx.showToast({ title: '对局僵持，已按步数上限判和', icon: 'none' });
+  }
+
   const rankKey = myColor === 1 ? 'blackNewRank' : 'whiteNewRank';
+  const oldRankKey = myColor === 1 ? 'blackOldRank' : 'whiteOldRank';
+  const upKey = myColor === 1 ? 'blackRankUp' : 'whiteRankUp';
+  const downKey = myColor === 1 ? 'blackRankDown' : 'whiteRankDown';
   const rankScoreKey = myColor === 1 ? 'blackAfterScore' : 'whiteAfterScore';
+
+  // 段位升降绚丽弹窗（提供爽感/情绪价值）
+  let rankUpModal = null;
+  if (data[upKey]) {
+    rankUpModal = { show: true, up: true, rank: data[rankKey] || '', old: data[oldRankKey] || '', t: Date.now() };
+  } else if (data[downKey]) {
+    rankUpModal = { show: true, up: false, rank: data[rankKey] || '', old: data[oldRankKey] || '', t: Date.now() };
+  }
+
   Object.assign(game, {
     showSettle: true,
     settleData: Object.assign({}, data, { endReason }),
     myResult, scoreChange, myTurn: false, drawPaused: false,
     phase: 'settled', phaseLabel: '已结束',
     rankName: data[rankKey] || '', rankScore: data[rankScoreKey] || 0,
+    rankUpModal,
   });
   // 结算音效 + 震动反馈
   if (myResult === 'win') { audio.playWin(); audio.vibrate(30); }
@@ -249,6 +289,8 @@ function onGameSnapshot(data) {
   console.log('[Match] 收到游戏快照，恢复对局状态');
   const payload = data && data.gameId ? data : state.currentGame;
   if (!payload) return;
+  // 对手已重连/快照恢复，清除掉线倒计时横幅
+  game.reconnectRemaining = 0;
   state.currentGame = payload;
   sceneMgr.goto('match', payload);
 }
@@ -365,6 +407,10 @@ function onDraw(ctx) {
       game.timeLow = game.remainingTime > 0 && game.remainingTime <= 10;
       game.timerProgress = calcTimerProgress(game.remainingTime);
     }
+    // 对手掉线倒计时自减（非阻塞，不阻止本地操作）
+    if (dt > 0 && game.reconnectRemaining > 0) {
+      game.reconnectRemaining = Math.max(0, game.reconnectRemaining - dt);
+    }
   }
   lastTickTs = nowTs;
 
@@ -377,6 +423,9 @@ function onDraw(ctx) {
   drawPlayerCards(ctx);
   drawBottomActions(ctx);
 
+  // 对手掉线非阻塞横幅（倒计时中仍可正常操作）
+  if (game.reconnectRemaining > 0) drawReconnectBanner(ctx);
+
   // 设置 rects.W/H（逻辑尺寸），供所有弹窗（drawDrawRequest/drawSetModal/drawSettle 等）使用
   rects.W = W; rects.H = H;
 
@@ -385,6 +434,7 @@ function onDraw(ctx) {
   if (game.showGiveUpConfirm) drawGiveUpConfirm(ctx);
   if (game.showSettings) drawSetModal(ctx);
   if (game.showSettle) drawSettle(ctx);
+  if (game.rankUpModal && game.rankUpModal.show) drawRankUpModal(ctx);
 }
 
 // 设置弹窗：统一复用通用设置组件（音乐/音效/震动开关 + 棋子皮肤）
@@ -393,15 +443,51 @@ function drawSetModal(ctx) {
 }
 
 // 段位名（依据积分区间，与服务端 config 一致）
+// 每100分一档：负分「还未入门」；0-1399 为小方/老方/小六/老六体系；≥1400 固定「资深老六」（星星另算）
 function rankNameFromScore(score) {
   const s = score || 0;
-  if (s < 200) return '初级小六';
-  if (s < 400) return '中级小六';
-  if (s < 600) return '高级小六';
-  if (s < 800) return '初级老六';
-  if (s < 1000) return '中级老六';
-  if (s < 1200) return '高级老六';
+  if (s < 0) return '还未入门';
+  if (s < 0) return '还未入门';
+  if (s < 10) return '初级小方';
+  if (s < 20) return '中级小方';
+  if (s < 40) return '高级小方';
+  if (s < 60) return '初级老方';
+  if (s < 80) return '中级老方';
+  if (s < 100) return '高级老方';
+  if (s < 130) return '资深老方';
+  if (s < 180) return '初级小六';
+  if (s < 230) return '中级小六';
+  if (s < 280) return '高级小六';
+  if (s < 380) return '初级老六';
+  if (s < 480) return '中级老六';
+  if (s < 580) return '高级老六';
   return '资深老六';
+}
+
+// 星星展示（仅 ≥680 使用）：按「分数」四进制换算 星→月→日→皇冠
+// 星星数 = floor((score - 680) / 100)；4星=1月，4月=1日(☀️)，4日=1皇冠(👑)
+function starBadgeFromScore(score) {
+  let stars = Math.floor((score - 680) / 100);
+  if (stars < 0) stars = 0;
+  const crown = Math.floor(stars / 64);
+  stars %= 64;
+  const sun = Math.floor(stars / 16);
+  stars %= 16;
+  const moon = Math.floor(stars / 4);
+  const star = stars % 4;
+  let badge = '';
+  if (crown > 0) badge += '👑'.repeat(Math.min(crown, 3));
+  if (sun > 0) badge += '☀️'.repeat(Math.min(sun, 3));
+  if (moon > 0) badge += '🌙'.repeat(Math.min(moon, 3));
+  if (star > 0) badge += '⭐'.repeat(star);
+  return badge || '⭐';
+}
+
+// 段位 + 星星徽章完整显示（≥680 时叠加徽章，强化爽感）
+function rankDisplayFromScore(score) {
+  const base = rankNameFromScore(score);
+  if ((score || 0) >= 680) return base + ' ' + starBadgeFromScore(score);
+  return base;
 }
 
 // 双方姓名卡 + 15秒倒计时环 + 棋子数/段位 + 执子颜色
@@ -508,7 +594,7 @@ function drawPlayerCard(ctx, o) {
   // 名字 + 段位（去掉"段位"前缀，改为"段位名 · 积分"）
   const displayName = (o.isBot ? '🤖 ' : '') + o.name;
   drawText(ctx, displayName, o.x + 64, cy - 9, { color: PALETTE.text, fontSize: 19, bold: true });
-  drawText(ctx, rankNameFromScore(o.rank) + ' · ' + (o.rank || 0), o.x + 64, cy + 14, {
+  drawText(ctx, rankDisplayFromScore(o.rank) + ' · ' + (o.rank || 0), o.x + 64, cy + 14, {
     color: PALETTE.textDim, fontSize: 14,
   });
   // 机器人角标：昵称右侧增加"机器人"小标签（后续正式上线时删除此块即可）
@@ -735,6 +821,25 @@ function drawBottomActions(ctx) {
   }
 }
 
+/** 对手掉线非阻塞横幅：顶部居中提示倒计时，不拦截任何点击（掉线方由 15s 托管继续操作） */
+function drawReconnectBanner(ctx) {
+  const bw = W - 32;
+  const bh = 40;
+  const bx = 16;
+  const by = state.statusBarHeight + 8;
+  // 半透明暖金底色胶囊
+  roundRect(ctx, bx, by, bw, bh, 18);
+  ctx.fillStyle = 'rgba(212,168,67,0.18)';
+  ctx.fill();
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = PALETTE.gold;
+  ctx.stroke();
+  const sec = Math.ceil(game.reconnectRemaining);
+  drawText(ctx, `对手已掉线，${sec} 秒后判你胜（重连中可继续操作）`, W / 2, by + bh / 2, {
+    color: PALETTE.gold, fontSize: 13, align: 'center', baseline: 'middle', bold: true,
+  });
+}
+
 // 统一的二次确认弹窗（认输风格）：淡雅、字号偏小、按钮全宽圆角
 function drawConfirmModal(ctx, opts) {
   ctx.fillStyle = 'rgba(60,47,40,0.5)';
@@ -807,8 +912,7 @@ function drawGiveUpConfirm(ctx) {
   });
 }
 
-function drawSettle(ctx) {
-  ctx.fillStyle = 'rgba(60,47,40,0.6)';
+function drawSettle(ctx) {  ctx.fillStyle = 'rgba(60,47,40,0.6)';
   ctx.fillRect(0, 0, W, H);
   const pw = W * 0.82, ph = Math.max(280, Math.round(H * 0.46)), px = (W - pw) / 2, py = (H - ph) / 2;
   drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 24 });
@@ -821,6 +925,46 @@ function drawSettle(ctx) {
 
   rects.settleBack = drawButton(ctx, { text: '返回大厅', x: px + 30, y: py + ph - 80, w: pw - 60, h: 56,
     fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 26 });
+}
+
+// 段位升降绚丽弹窗（升级金色光晕 / 降级灰蓝，自动2.6s消失）
+function drawRankUpModal(ctx) {
+  const m = game.rankUpModal;
+  if (!m) return;
+  const elapsed = Date.now() - m.t;
+  const life = 2600;
+  if (elapsed > life) { m.show = false; return; } // 自动消失
+
+  // 入场缩放缓动（前300ms弹出，后段保持）
+  const k = Math.min(1, elapsed / 300);
+  const ease = 1 - Math.pow(1 - k, 3);
+  const scale = 0.7 + 0.3 * ease;
+  const cx = W / 2, cy = H * 0.34;
+  const pw = 300 * scale, ph = 150 * scale;
+  const px = cx - pw / 2, py = cy - ph / 2;
+
+  ctx.save();
+  // 光晕
+  const glow = m.up ? 'rgba(255,196,84,0.35)' : 'rgba(140,160,180,0.32)';
+  const grad = ctx.createRadialGradient(cx, cy, 10, cx, cy, pw * 0.8);
+  grad.addColorStop(0, glow);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(cx - pw * 0.8, cy - ph * 0.8, pw * 1.6, ph * 1.6);
+
+  drawCard(ctx, { x: px, y: py, w: pw, h: ph, radius: 22, fill: m.up ? '#2C2438' : '#26303A' });
+
+  const title = m.up ? '🎉 恭喜升级' : '📉 遗憾降级';
+  const titleColor = m.up ? PALETTE.gold : '#9FB4C8';
+  drawText(ctx, title, cx, py + ph * 0.34, { color: titleColor, fontSize: 26 * scale, align: 'center', bold: true });
+  drawText(ctx, m.rank, cx, py + ph * 0.66, { color: PALETTE.text, fontSize: 34 * scale, align: 'center', bold: true });
+  // 升级时小字鼓励
+  if (m.up) {
+    drawText(ctx, '再接再厉，向前冲！', cx, py + ph * 0.9, { color: PALETTE.textDim, fontSize: 14 * scale, align: 'center' });
+  } else {
+    drawText(ctx, '稳住心态，下次翻盘', cx, py + ph * 0.9, { color: PALETTE.textDim, fontSize: 14 * scale, align: 'center' });
+  }
+  ctx.restore();
 }
 
 // ========== 触摸 ==========

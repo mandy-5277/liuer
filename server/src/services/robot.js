@@ -197,9 +197,12 @@ function maybeStartRobot(gameId) {
 }
 
 /**
- * 定时扫描匹配队列：若队列中有真人等待超过 matchDelay 且仍无对手，
- * 则让机器人介入匹配。
+ * 定时扫描匹配队列：随时间逐步放宽分差（±200→±500→±1000→无分段），
+ * 真人等待超过 robotDelay（默认20s）仍无对手则机器人介入匹配。
  * 仅介入"随机匹配"等待（机器人只填补 random 匹配的空缺）。
+ *
+ * 注意：因存在与 session 的循环依赖，bumpMatchTier / tryMatch 不直接持有，
+ * 改用惰性获取器 getSession()（运行时模块图已完整，可拿到最终导出）调用。
  *
  * @param {Array} matchingQueue 引用 session.matchingQueue
  * @param {Function} joinMatching 引用 session.joinMatching
@@ -211,26 +214,27 @@ function startMatchWatchdog(matchingQueue, joinMatching) {
     console.log('[Robot] 机器人功能未启用（robot.enabled=false）');
     return;
   }
-  const delay = cfg.matchDelay || 15000;
-  console.log(`[Robot] 匹配看门狗已启动，介入延迟=${delay}ms`);
+  const delay = gameConfig.robotDelay || 20000;
+  const ticks = Math.max(1, Math.floor(delay / 5000)); // 每5s一个梯度
+  console.log(`[Robot] 匹配看门狗已启动，机器人介入延迟=${delay}ms，分级每5s放宽`);
 
+  let tick = 0;
   matchTimer = setInterval(async () => {
     try {
-      // 找出仍在队列中且等待超时的真人
+      tick++;
+      // 分差分级（±200→±500→±1000→无分段）由 session 内部定时器推进，
+      // 这里只负责：等待超过 robotDelay 的真人，注入机器人兜底。
       const now = Date.now();
-      // matchingQueue 元素无入队时间，这里用"队列非空"近似：
-      // 每次有真人加入队列时记录入队时间（见下方 patchJoinMatching）。
       const waiters = matchingQueue.filter(p => !p._bot && now - (p._enqueueAt || now) >= delay);
       if (waiters.length === 0) return;
 
+      const session = getSession();
       for (const waiter of waiters) {
-        // 该真人仍在对局外，则让机器人介入
-        const active = getSession().findActiveGameByPlayer(waiter.openid);
+        const active = session.findActiveGameByPlayer(waiter.openid);
         if (active) continue;
 
-        console.log(`[Robot] 真人 ${waiter.openid} 等待超时，机器人介入匹配`);
+        console.log(`[Robot] 真人 ${waiter.openid} 等待超过 ${delay}ms，机器人介入匹配`);
         const bot = await acquireRobot();
-        // 把机器人作为对手加入匹配队列并执行匹配
         await joinMatching({
           openid: bot.openid,
           nickName: bot.user.nickName,
@@ -238,13 +242,12 @@ function startMatchWatchdog(matchingQueue, joinMatching) {
           rankScore: bot.user.rankScore,
           _bot: true,
         });
-        // 机器人作为真实玩家已经在 wsMap 中，移除其 _bot 标记（避免后续误判）
-        // joinMatching 后 tryMatch 会立即匹配该真人与机器人
+        // joinMatching 内部 tryMatch 会立即将机器人与该真人对弈
       }
     } catch (err) {
       console.error('[Robot] 匹配看门狗异常:', err);
     }
-  }, Math.max(1000, Math.floor(delay / 2)));
+  }, 5000);
 }
 
 /** 停止看门狗（优雅关闭用） */

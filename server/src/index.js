@@ -21,7 +21,7 @@ const { WebSocketServer } = require('ws');
 const express = require('express');
 const { port, wsHeartbeatInterval, wechat } = require('./config');
 const { dispatch } = require('./ws/handler');
-const { wsMap, removeConnection, gameSessions, findActiveGameByPlayer, handlePlayerDisconnect, matchingQueue, joinMatching } = require('./services/session');
+const { wsMap, removeConnection, gameSessions, findActiveGameByPlayer, handlePlayerDisconnect, matchingQueue, joinMatching, startMatchTierTimer } = require('./services/session');
 const robot = require('./services/robot');
 const security = require('./services/security');
 const { initSchema } = require('./db/mysql');
@@ -316,6 +316,7 @@ async function start() {
   // 启动机器人匹配看门狗（真人匹配超时后机器人介入）
   try {
     robot.startMatchWatchdog(matchingQueue, joinMatching);
+    startMatchTierTimer(); // 启动匹配分级时间梯度（±200→±500→±1000→无分段）
   } catch (err) {
     console.error('[Robot] 启动匹配看门狗失败:', err.message);
   }

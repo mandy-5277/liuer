@@ -140,19 +140,56 @@ function cancelMatching(openid) {
   return { success: false, errMsg: '不在匹配队列中' };
 }
 
-/** 尝试匹配 */
+// 匹配分级：随时间逐步放宽分差（±200 → ±500 → ±1000 → 无分段）
+let matchTierIndex = 0;
+function currentMatchMaxDiff() {
+  const tiers = gameConfig.matchTiers || [];
+  if (!tiers.length) return Infinity;
+  return tiers[Math.min(matchTierIndex, tiers.length - 1)].maxDiff;
+}
+function bumpMatchTier() {
+  const tiers = gameConfig.matchTiers || [];
+  if (matchTierIndex < tiers.length - 1) matchTierIndex++;
+}
+function scoreDiffOk(a, b, maxDiff) {
+  if (a._bot || b._bot) return true; // 机器人对手不限分差
+  return Math.abs((a.rankScore || 0) - (b.rankScore || 0)) <= maxDiff;
+}
+
+/** 尝试匹配（按当前分级的分差配对；队首优先，找首个达标对手） */
 async function tryMatch() {
-  while (matchingQueue.length >= 2) {
-    const player1 = matchingQueue.shift();
-    const player2 = matchingQueue.shift();
-
-    // 随机分配黑白
-    const [blackPlayer, whitePlayer] = Math.random() < 0.5
-      ? [player1, player2]
-      : [player2, player1];
-
-    await startGame(blackPlayer, whitePlayer, 'random');
+  const maxDiff = currentMatchMaxDiff();
+  if (matchingQueue.length < 2) return;
+  for (let i = 1; i < matchingQueue.length; i++) {
+    const p1 = matchingQueue[0];
+    const p2 = matchingQueue[i];
+    if (scoreDiffOk(p1, p2, maxDiff)) {
+      matchingQueue.splice(i, 1);
+      matchingQueue.shift();
+      const [blackPlayer, whitePlayer] = Math.random() < 0.5
+        ? [p1, p2]
+        : [p2, p1];
+      await startGame(blackPlayer, whitePlayer, 'random');
+      // 继续尝试队列中剩余玩家
+      await tryMatch();
+      return;
+    }
   }
+}
+
+// 匹配分级时间梯度定时器：每5s提升一次分差分级并重试配对（±200→±500→±1000→无分段）
+// 独立于 robot 看门狗，避免循环依赖；启动一次即可。
+let tierTimer = null;
+function startMatchTierTimer() {
+  if (tierTimer) return;
+  const tiers = gameConfig.matchTiers || [];
+  const totalTicks = Math.max(1, tiers.length - 1); // 到无分段需推进的档数
+  let tick = 0;
+  tierTimer = setInterval(() => {
+    tick++;
+    if (tick <= totalTicks) bumpMatchTier();
+    tryMatch();
+  }, 5000);
 }
 
 // ========== 房间系统 ==========
@@ -727,10 +764,15 @@ async function finalizeGame(gameId, settleResult) {
     : settleResult.result === 'white' ? 'lose' : 'draw';
   const whiteResult = settleResult.result === 'white' ? 'win'
     : settleResult.result === 'black' ? 'lose' : 'draw';
+  // 星星按胜场累计：赢+1、输-1、和棋/其它0；机器人不参与（保持0）
+  const isBlackBot = (engine.blackPlayer.openid || '').startsWith((gameConfig.robot && gameConfig.robot.prefix) || 'bot_');
+  const isWhiteBot = (engine.whitePlayer.openid || '').startsWith((gameConfig.robot && gameConfig.robot.prefix) || 'bot_');
+  const blackStarsDelta = isBlackBot ? 0 : (blackResult === 'win' ? 1 : blackResult === 'lose' ? -1 : 0);
+  const whiteStarsDelta = isWhiteBot ? 0 : (whiteResult === 'win' ? 1 : whiteResult === 'lose' ? -1 : 0);
 
   await Promise.all([
-    userService.updateGameRecord(engine.blackPlayer.openid, blackResult, settleResult.blackRatingChange, settleResult.blackAfterScore),
-    userService.updateGameRecord(engine.whitePlayer.openid, whiteResult, settleResult.whiteRatingChange, settleResult.whiteAfterScore),
+    userService.updateGameRecord(engine.blackPlayer.openid, blackResult, settleResult.blackRatingChange, settleResult.blackAfterScore, blackStarsDelta),
+    userService.updateGameRecord(engine.whitePlayer.openid, whiteResult, settleResult.whiteRatingChange, settleResult.whiteAfterScore, whiteStarsDelta),
   ]);
 
   // 从引擎计算真实统计值（settleResult 不携带这些字段）
@@ -800,6 +842,9 @@ module.exports = {
   findActiveGameByPlayer,
   joinMatching,
   cancelMatching,
+  tryMatch,
+  bumpMatchTier,
+  startMatchTierTimer,
   createInviteRoom,
   joinRoomByCode,
   leaveRoom,

@@ -50,7 +50,7 @@ const SECTIONS = {
       '· 成六：己方 6 颗棋子在一条直线（横、竖）上连续排成，即「成六」。',
       '· 「成方」可揪掉对方 1 子；「成六」可揪掉对方 2 子。',
       '· 同一手同时触发多个「方」或「六」，按可揪总数累加；揪子可连续进行（连揪）。',
-    ] },
+    ], diagram: true },
   ],
   2: [
     { title: '胜负规则', body: [
@@ -66,7 +66,7 @@ const SECTIONS = {
       '· 对方拒绝则继续对局。',
     ] },
     { title: '记分规则', body: [
-      '· 胜局：段位积分 +10；负局：-3；平局：-1（以服务端结算为准）。',
+      '· 胜局：段位积分 +3；负局：-3；平局：0。',
       '· 发起求和：-1；同意求和：+1。',
       '· 积分越高段位越高，可在「排行榜」查看自己的名次。',
       '· 每日胜率、场次等数据在对局结算后实时更新。',
@@ -234,15 +234,23 @@ function drawOverview(ctx, cardX, cardW, topY) {
   drawBoardDiagram(ctx, W / 2, topY + 132);
   drawText(ctx, '棋子置于交叉点而非格内', W / 2, topY + c1h - 14, { color: PALETTE.textDim, fontSize: 12, align: 'center' });
 
-  // ---- 卡2：棋子状态图例 ----
+  // ---- 卡2：棋子状态图例（整体相对卡片居中） ----
   const c2y = topY + c1h + 8;
   const c2h = 96;
   drawCard(ctx, { x: cardX, y: c2y, w: cardW, h: c2h, radius: 14 });
   drawText(ctx, '棋子状态说明', left, c2y + 28, { color: PALETTE.gold, fontSize: 20, bold: true });
-  drawLegendItem(ctx, left, c2y + 54, 'solid', '#1A1A1A', '普通黑棋');
-  drawLegendItem(ctx, left + 110, c2y + 54, 'white', '', '普通白棋');
-  drawLegendItem(ctx, left, c2y + 82, 'ring', '#D4A843', '选中态');
-  drawLegendItem(ctx, left + 100, c2y + 82, 'ring', '#D94A4A', '可揪态');
+  const legendPairs = [
+    [['solid', '#1A1A1A', '普通黑棋'], ['white', '', '普通白棋']],
+    [['ring', '#D4A843', '选中态'], ['ring', '#D94A4A', '可揪态']],
+  ];
+  const rowGap = 110; // 两 icon 中心间距
+  const midX = cardX + cardW / 3;
+  const rowYs = [c2y + 54, c2y + 82];
+  legendPairs.forEach((pair, row) => {
+    const x1 = midX - rowGap / 2;
+    drawLegendItem(ctx, x1, rowYs[row], pair[0][0], pair[0][1], pair[0][2]);
+    drawLegendItem(ctx, x1 + rowGap, rowYs[row], pair[1][0], pair[1][1], pair[1][2]);
+  });
 
   // ---- 卡3：棋盘规格 ----
   const c3y = c2y + c2h + 8;
@@ -254,19 +262,149 @@ function drawOverview(ctx, cardX, cardW, topY) {
 
   // ---- 卡4：积分与段位规则 ----
   const c4y = c3y + c3h + 8;
-  const c4h = 168;
+  const c4h = 420;
   drawCard(ctx, { x: cardX, y: c4y, w: cardW, h: c4h, radius: 14 });
   drawText(ctx, '积分与段位规则', left, c4y + 28, { color: PALETTE.gold, fontSize: 20, bold: true });
-  const lines = [
-    '· 胜负积分：胜 +10 / 负 -3 / 平 -1',
-    '· 发起求和 -1，同意求和 +1',
-    '· 段位分级(按积分)：',
-    '   <200 初级小六   <400 中级小六',
-    '   <600 高级小六   <800 初级老六',
-    '   <1000 中级老六  <1200 高级老六',
-    '   ≥1200 资深老六',
+  // 段位对照表（带表头/分隔线/斑马纹）
+  const rankRows = [
+    ['还未入门', '0 以下'],
+    ['初级小方', '0 - 9'],
+    ['中级小方', '10 - 19'],
+    ['高级小方', '20 - 39'],
+    ['初级老方', '40 - 59'],
+    ['中级老方', '60 - 79'],
+    ['高级老方', '80 - 99'],
+    ['资深老方', '100 - 129'],
+    ['初级小六', '130 - 179'],
+    ['中级小六', '180 - 229'],
+    ['高级小六', '230 - 279'],
+    ['初级老六', '280 - 379'],
+    ['中级老六', '380 - 479'],
+    ['高级老六', '480 - 579'],
+    ['资深老六', '580 - 679'],
   ];
-  lines.forEach((t, i) => drawText(ctx, t, left, c4y + 56 + i * 16, { color: PALETTE.text, fontSize: 13 }));
+  const tableW = 246; // 表格固定宽度（段位列 + 间隔 + 积分范围列）
+  const tableX = cardX + (cardW - tableW) / 2; // 相对卡片居中
+  const gridX = tableX + 6;
+  const col2X = gridX + 150; // 段位名列宽
+  const headY = c4y + 52;
+  const rowH = 19;
+  const rowsTop = headY + 4;
+  const rowsBottom = rowsTop + rankRows.length * rowH;
+
+  // 表头底分隔线
+  ctx.strokeStyle = 'rgba(169,140,78,0.5)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(tableX, headY - 12);
+  ctx.lineTo(tableX + tableW, headY - 12);
+  ctx.stroke();
+  // 斑马纹背景
+  rankRows.forEach((r, i) => {
+    if (i % 2 === 1) {
+      ctx.fillStyle = 'rgba(169,140,78,0.08)';
+      roundRect(ctx, tableX, rowsTop + i * rowH - 2, tableW, rowH, 4);
+      ctx.fill();
+    }
+  });
+  // 列分隔线
+  ctx.strokeStyle = 'rgba(169,140,78,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(col2X - 14, rowsTop - 2);
+  ctx.lineTo(col2X - 14, rowsBottom - 2);
+  ctx.stroke();
+  // 行分隔线
+  rankRows.forEach((r, i) => {
+    const y = rowsTop + (i + 1) * rowH - 2;
+    ctx.beginPath();
+    ctx.moveTo(tableX, y);
+    ctx.lineTo(tableX + tableW, y);
+    ctx.stroke();
+  });
+  // 表头
+  drawText(ctx, '段位', gridX, headY, { color: PALETTE.gold, fontSize: 14, bold: true });
+  drawText(ctx, '积分范围', col2X, headY, { color: PALETTE.gold, fontSize: 14, bold: true });
+  // 数据行
+  rankRows.forEach((r, i) => {
+    const y = rowsTop + i * rowH + 12;
+    drawText(ctx, r[0], gridX, y, { color: PALETTE.text, fontSize: 13 });
+    drawText(ctx, r[1], col2X, y, { color: PALETTE.text, fontSize: 13 });
+  });
+  // 680+ 星星进阶说明（与游戏内实际一致：达到资深老六≥680 起展示星星，每100分+1⭐，四进制进阶）
+  const starY = rowsBottom + 12;
+  drawText(ctx, '资深老六(≥680)起展示星星徽章：每 100 分 +1⭐', W / 2, starY, { color: PALETTE.gold, fontSize: 12.5, align: 'center' });
+  drawText(ctx, '进阶 4⭐=🌙  4🌙=☀️  4☀️=👑', W / 2, starY + 18, { color: PALETTE.gold, fontSize: 12.5, align: 'center' });
+}
+
+/** 绘制「成方」2×2 小图：3×3 棋盘，中间 2×2 交叉点放 4 颗小黑子 */
+function drawFormSquare(ctx, cx, cy) {
+  const cell = 10;
+  const r = 3.5;
+  const half = 1.5 * cell;
+  // 3x3 棋盘线
+  ctx.strokeStyle = '#A98C4E';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const off = -half + i * cell;
+    ctx.beginPath();
+    ctx.moveTo(cx + off, cy - half);
+    ctx.lineTo(cx + off, cy + half);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - half, cy + off);
+    ctx.lineTo(cx + half, cy + off);
+    ctx.stroke();
+  }
+  // 高亮 2x2 的四个交叉点（成方）
+  const corners = [[-1, -1], [0, -1], [-1, 0], [0, 0]];
+  corners.forEach(([dx, dy]) => {
+    const px = cx + dx * cell;
+    const py = cy + dy * cell;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#1A1A1A';
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#000';
+    ctx.stroke();
+  });
+}
+
+/** 绘制「成六」直线小图：1×6 棋盘，6 个交叉点放连续黑子 */
+function drawFormSix(ctx, cx, cy) {
+  const cell = 10;
+  const r = 3.5;
+  const w = 6 * cell;
+  const h = cell;
+  // 1x6 棋盘线
+  ctx.strokeStyle = '#A98C4E';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 6; i++) {
+    const x = cx - w / 2 + i * cell;
+    ctx.beginPath();
+    ctx.moveTo(x, cy - h / 2);
+    ctx.lineTo(x, cy + h / 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(cx - w / 2, cy - h / 2);
+  ctx.lineTo(cx + w / 2, cy - h / 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - w / 2, cy + h / 2);
+  ctx.lineTo(cx + w / 2, cy + h / 2);
+  ctx.stroke();
+  // 6 颗连续黑子
+  for (let i = 0; i < 6; i++) {
+    const px = cx - 2.5 * cell + i * cell;
+    ctx.beginPath();
+    ctx.arc(px, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#1A1A1A';
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#000';
+    ctx.stroke();
+  }
 }
 
 /** 单个分组白色卡片（金色标题 + 正文，标题只显示一次） */
@@ -282,7 +420,9 @@ function drawSection(ctx, cardX, cardW, topY, section) {
     bodyH += wl.length * (fs + 9);
     return wl;
   });
-  const cardH = 28 + 34 + bodyH + 18;
+  // 若有图示：预留上方说明 + 两图并排区域高度（棋盘小图约 48px + 标签）
+  const diagH = section.diagram ? 72 : 0;
+  const cardH = 28 + 34 + bodyH + diagH + 18;
 
   drawCard(ctx, { x: cardX, y: topY, w: cardW, h: cardH, radius: 14 });
   drawText(ctx, section.title, left, topY + 28, { color: PALETTE.gold, fontSize: 20, bold: true });
@@ -297,6 +437,17 @@ function drawSection(ctx, cardX, cardW, topY, section) {
       ty += fs + 9;
     });
   });
+
+  // 图示：成方 / 成六 小图并排
+  if (section.diagram) {
+    const dy = ty + 8;
+    // 两图
+    drawFormSquare(ctx, left + 40, dy + 28);
+    drawFormSix(ctx, left + cardW / 2 + 52, dy + 28);
+    // 说明行放在图下方
+    drawText(ctx, '成方（2×2）', left + 40, dy + 58, { color: PALETTE.textDim, fontSize: 12, align: 'center' });
+    drawText(ctx, '成六（直线6子）', left + cardW / 2 + 52, dy + 58, { color: PALETTE.textDim, fontSize: 12, align: 'center' });
+  }
   return cardH;
 }
 
@@ -306,7 +457,8 @@ function drawSections(ctx, cardX, cardW, topY, viewH, sections) {
     // 估算高度用于 maxScroll（与绘制一致）
     let bodyH = 0;
     s.body.forEach((l) => { bodyH += wrapText(ctx, l, 16, cardW - 40).length * (16 + 9); });
-    return sum + (28 + 34 + bodyH + 18 + 8);
+    const diagH = s.diagram ? 72 : 0;
+    return sum + (28 + 34 + bodyH + diagH + 18 + 8);
   }, 0);
 
   maxScroll = Math.max(0, totalH - viewH);
@@ -335,7 +487,7 @@ function drawContentCard(ctx) {
   contentTop = topY;
   contentBottom = navTop;
   if (tabIndex === 0) {
-    const totalH = 250 + 8 + 96 + 8 + 86 + 8 + 168 + 8;
+    const totalH = 250 + 8 + 96 + 8 + 86 + 8 + 420 + 8;
     maxScroll = Math.max(0, totalH - viewH);
     ctx.save();
     ctx.beginPath();

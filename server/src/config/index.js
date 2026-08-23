@@ -51,15 +51,34 @@ module.exports = {
     signInReward: 5,       // 每日签到恢复精力点数
 
     // 段位体系（积分区间 -> 段位名称）
+    // 新手小步进（10/20分一档）给快速正反馈；小六起50分一档；老六起100分一档。
+    // 负分(<0)显示「还未入门」；≥680 固定「资深老六+」并以星星/月亮/太阳/皇冠展示（按胜场累计）。
     ranks: [
-      { min: 0,     max: 199,  name: '初级小六', icon: '⭐' },
-      { min: 200,   max: 399,  name: '中级小六', icon: '⭐⭐' },
-      { min: 400,   max: 599,  name: '高级小六', icon: '⭐⭐⭐' },
-      { min: 600,   max: 799,  name: '初级老六', icon: '👑' },
-      { min: 800,   max: 999,  name: '中级老六', icon: '👑👑' },
-      { min: 1000,  max: 1199, name: '高级老六', icon: '👑👑👑' },
-      { min: 1200,  max: Infinity, name: '资深老六', icon: '👑👑👑💎' },
+      { min: 0,     max: 9,      name: '初级小方' },
+      { min: 10,    max: 19,     name: '中级小方' },
+      { min: 20,    max: 39,     name: '高级小方' },
+      { min: 40,    max: 59,     name: '初级老方' },
+      { min: 60,    max: 79,     name: '中级老方' },
+      { min: 80,    max: 99,     name: '高级老方' },
+      { min: 100,   max: 129,    name: '资深老方' },
+      { min: 130,   max: 179,    name: '初级小六' },
+      { min: 180,   max: 229,    name: '中级小六' },
+      { min: 230,   max: 279,    name: '高级小六' },
+      { min: 280,   max: 379,    name: '初级老六' },
+      { min: 380,   max: 479,    name: '中级老六' },
+      { min: 480,   max: 579,    name: '高级老六' },
+      { min: 580,   max: 679,    name: '资深老六' },
     ],
+    // 1400+ 的星星展示配置（按胜场 stars 字段换算，四进制：4星=1月，4月=1日/太阳，4太阳=1皇冠）
+    starTiers: { star: '⭐', moon: '🌙', sun: '☀️', crown: '👑' },
+    // 匹配分级扩圈（毫秒 -> 允许的最大积分差；超过 robotDelay 后机器人介入）
+    matchTiers: [
+      { afterMs: 0,    maxDiff: 200 },   // 0-5s：±200
+      { afterMs: 5000,  maxDiff: 500 },   // 5-10s：±500
+      { afterMs: 10000, maxDiff: 1000 },  // 10-15s：±1000
+      { afterMs: 15000, maxDiff: Infinity }, // 15-20s：无分段
+    ],
+    robotDelay: 20000, // 20s 后机器人介入兜底
 
     // 积分结算规则
     scoreChange: {

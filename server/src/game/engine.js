@@ -17,7 +17,7 @@ const {
   cloneBoard, createEmptyBoard, isBoardFull,
   calcCatchNum, getAllFormed, checkNewForm,
   hasAvailableMove, getStoneCount,
-  getAllEmptyCells, getLegalMoves, getCapturableCells, getRankName,
+  getAllEmptyCells, getLegalMoves, getCapturableCells, getRankName, getRankLevel,
 } = require('./board');
 const { game: gameConfig } = require('../config');
 
@@ -43,7 +43,8 @@ class GameEngine {
 
     // 走子阶段管理
     this.moveFirstPlayer = null; // 走子阶段先手（继承揪阶段最后操作者）
-    this.noCatchRoundCount = 0; // 连续无有效揪回合计数
+    this.moveStepCount = 0;      // 走子阶段累计步数（用于步数上限和棋兜底）
+    this.noCatchRoundCount = 0; // 连续无有效揪回合计数（仅日志用）
 
     // 超时管理
     this.consecutiveTimeouts = { [BLACK]: 0, [WHITE]: 0 };
@@ -74,6 +75,7 @@ class GameEngine {
     this.whiteCatchNum = 0;
     this.captureFirstPlayer = null;
     this.captureOrderInitialized = false;
+    this.moveStepCount = 0;
     this.noCatchRoundCount = 0;
     this.consecutiveTimeouts = { [BLACK]: 0, [WHITE]: 0 };
     this.moves = [];
@@ -368,6 +370,7 @@ class GameEngine {
 
     this.stage = Stage.MOVING;
     this.turnStartTime = Date.now();
+    this.moveStepCount = 0;     // 重置走子步数计数
     this.noCatchRoundCount = 0;
 
     return {
@@ -446,6 +449,13 @@ class GameEngine {
     if (!hasAvailableMove(enemyColor, this.board)) {
       return this.settleGame(color === BLACK ? GameResult.BLACK_WIN : GameResult.WHITE_WIN, EndReason.CHECKMATE);
     }
+
+    // 走子步数计数（用于步数上限和棋兜底）
+    this.moveStepCount++;
+
+    // 兜底：走子阶段步数达动态上限仍未分胜负（长期拉锯），按和棋结束（不扣分）
+    const stale = this._checkStalemate();
+    if (stale) return stale;
 
     // 处理联动揪子
     if (newFormResult.count > 0) {
@@ -835,6 +845,21 @@ class GameEngine {
   // ========== 阶段4：结算 ==========
 
   /**
+   * 走子阶段步数上限和棋兜底（防止双方长期拉锯无法分出胜负）
+   * 阈值随盘面剩余棋子数动态放大：剩余越多允许走得越久；残局越快封顶。
+   * 返回 settleGame 结果，或 null（未达上限）。
+   */
+  _checkStalemate() {
+    if (this.stage !== Stage.MOVING) return null;
+    const totalStones = getStoneCount(this.board, BLACK) + getStoneCount(this.board, WHITE);
+    const maxMoveSteps = Math.max(120, totalStones * 20);
+    if (this.moveStepCount >= maxMoveSteps) {
+      return this.settleGame(GameResult.DRAW, EndReason.STALEMATE);
+    }
+    return null;
+  }
+
+  /**
    * 结算对局
    */
   settleGame(result, endReason) {
@@ -870,6 +895,10 @@ class GameEngine {
           whiteRatingChange = scoreChange.drawRequest;
           blackRatingChange = scoreChange.drawAgree;
         }
+      } else if (endReason === EndReason.STALEMATE) {
+        // 步数上限和棋：双方均不扣分（温和兜底，避免误伤正常对局体验）
+        blackRatingChange = 0;
+        whiteRatingChange = 0;
       } else {
         blackRatingChange = scoreChange.naturalDraw;
         whiteRatingChange = scoreChange.naturalDraw;
@@ -900,6 +929,13 @@ class GameEngine {
       whiteAfterScore: whiteNewScore,
       blackNewRank: getRankName(blackNewScore),
       whiteNewRank: getRankName(whiteNewScore),
+      // 段位升降判定（按级别序号对比；和棋也可能因跨档变化）
+      blackRankUp: getRankLevel(blackNewScore) > getRankLevel(this.blackPlayer.rankScore),
+      blackRankDown: getRankLevel(blackNewScore) < getRankLevel(this.blackPlayer.rankScore),
+      whiteRankUp: getRankLevel(whiteNewScore) > getRankLevel(this.whitePlayer.rankScore),
+      whiteRankDown: getRankLevel(whiteNewScore) < getRankLevel(this.whitePlayer.rankScore),
+      blackOldRank: getRankName(this.blackPlayer.rankScore),
+      whiteOldRank: getRankName(this.whitePlayer.rankScore),
 
       // 棋步记录
       moves: this.moves,

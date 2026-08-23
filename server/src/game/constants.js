@@ -33,8 +33,7 @@ const EndReason = {
   CHECKMATE: 'checkmate',       // 绝杀（无棋可走或棋子为0）
   SURRENDER: 'surrender',       // 认输
   DRAW_AGREE: 'draw_agree',     // 同意求和
-  DRAW_FIVE: 'draw_five',       // 五回合无有效揪
-  DRAW_REQUEST: 'draw_request', // 主动求和判和
+  STALEMATE: 'stalemate',       // 步数上限和棋（走子阶段长期拉锯兜底，不扣分）
   TIMEOUT: 'timeout',           // 超时判负
   DISCONNECT: 'disconnect',     // 掉线判负
 };

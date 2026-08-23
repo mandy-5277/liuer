@@ -27,6 +27,7 @@ async function ensureEnergySchema() {
     ['energyRecoverAt', 'BIGINT NOT NULL DEFAULT 0'],
     ['dailyAdCount', 'INT NOT NULL DEFAULT 0'],      // 每日看广告次数
     ['dailyShareCount', 'INT NOT NULL DEFAULT 0'],   // 每日分享次数
+    ['stars', 'INT NOT NULL DEFAULT 0'],             // 星星数（1400+ 段位展示，按胜场累计，赢+1输-1，下限0）
   ];
   for (const [col, def] of cols) {
     try {
@@ -247,7 +248,7 @@ async function isBotUser(openid) {
 }
 
 async function updateUser(openid, updates) {
-  const allowed = ['nickName', 'avatarUrl', 'rankScore', 'rankName', 'energy', 'lastCheckin', 'lastDailyReset', 'winCount', 'loseCount', 'drawCount', 'settings'];
+  const allowed = ['nickName', 'avatarUrl', 'rankScore', 'rankName', 'energy', 'lastCheckin', 'lastDailyReset', 'winCount', 'loseCount', 'drawCount', 'settings', 'stars'];
   const fields = [];
   const values = [];
   for (const k of allowed) {
@@ -343,11 +344,12 @@ async function getRankList(limit = 100, sortBy = 'score') {
 }
 
 // 更新用户维度战绩（session.js 中 userService.updateGameRecord 调用）
-async function updateUserGameResult(openid, result, ratingChange, afterScore) {
+async function updateUserGameResult(openid, result, ratingChange, afterScore, starsDelta = 0) {
   const field = result === 'win' ? 'winCount' : result === 'lose' ? 'loseCount' : 'drawCount';
+  // 星星按胜场累计：赢+1、输-1、和/其它0；下限0（用 GREATEST 防负）
   await pool.query(
-    `UPDATE users SET ${field} = ${field} + 1, rankScore = ? WHERE openid = ?`,
-    [afterScore, openid]
+    `UPDATE users SET ${field} = ${field} + 1, rankScore = ?, stars = GREATEST(0, stars + ?) WHERE openid = ?`,
+    [afterScore, starsDelta, openid]
   );
 }
 

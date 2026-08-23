@@ -46,6 +46,32 @@ let myInfo = {
   outOfTop: false,
 };
 
+// 星星徽章（仅 ≥680 使用）：按分数四进制换算 星→月→日→皇冠
+// 星星数 = floor((score - 680) / 100)；4星=1月，4月=1日(☀️)，4日=1皇冠(👑)
+function starBadgeFromScore(score) {
+  let stars = Math.floor((score - 680) / 100);
+  if (stars < 0) stars = 0;
+  const crown = Math.floor(stars / 64);
+  stars %= 64;
+  const sun = Math.floor(stars / 16);
+  stars %= 16;
+  const moon = Math.floor(stars / 4);
+  const star = stars % 4;
+  let badge = '';
+  if (crown > 0) badge += '👑'.repeat(Math.min(crown, 3));
+  if (sun > 0) badge += '☀️'.repeat(Math.min(sun, 3));
+  if (moon > 0) badge += '🌙'.repeat(Math.min(moon, 3));
+  if (star > 0) badge += '⭐'.repeat(star);
+  return badge || '⭐';
+}
+
+// 段位 + 星星徽章完整显示（≥680 时叠加「+徽章」）
+function rankDisplay(score, name) {
+  const s = score || 0;
+  if (s >= 680) return (name || '资深老六') + ' ' + starBadgeFromScore(s);
+  return name || '初级小六';
+}
+
 // 胜率榜上榜最低场次门槛
 const WINRATE_MIN_GAMES = 50;
 
@@ -147,8 +173,8 @@ function drawList(ctx, listTop, listBottom) {
     drawText(ctx, (isBot ? '🤖 ' : '') + (it.nickName || '匿名玩家'), 100, y + rowH / 2 - 13, {
       color: isBot ? PALETTE.textDim : PALETTE.text, fontSize: 16, bold: true, baseline: 'middle',
     });
-    // 段位
-    drawText(ctx, it.rankName || '', 100, y + rowH / 2 + 9, {
+    // 段位（≥680 显示「段位+星星」）
+    drawText(ctx, rankDisplay(it.rankScore, it.rankName), 100, y + rowH / 2 + 9, {
       color: PALETTE.textDim, fontSize: 12, baseline: 'middle',
     });
     // 积分 / 胜率（内缩到卡片内）
@@ -195,7 +221,7 @@ function drawMyCard(ctx, cardY) {
   drawText(ctx, myInfo.nickName || '我', 100, cardY + cardH / 2 - 10, {
     color: PALETTE.text, fontSize: 18, bold: true, baseline: 'middle',
   });
-  drawText(ctx, myInfo.rankName || '', 100, cardY + cardH / 2 + 12, {
+  drawText(ctx, rankDisplay(myInfo.rankScore, myInfo.rankName), 100, cardY + cardH / 2 + 12, {
     color: PALETTE.textDim, fontSize: 13, baseline: 'middle',
   });
   // "未上榜"标记 / 数值
