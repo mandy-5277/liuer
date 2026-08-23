@@ -726,8 +726,9 @@ function drawBottomActions(ctx) {
     }));
   });
 
-  if (game.skipAvailable || game.moveCaptureMode) {
-    rects.skipBtn = drawButton(ctx, { text: '跳过连揪', x: (W - 160) / 2, y: y - 52, w: 160, h: 42,
+  // 揪子阶段(含连揪与普通揪子)均可跳过；走子阶段的连揪也保留
+  if (game.phase === 'capture' || game.skipAvailable || game.moveCaptureMode) {
+    rects.skipBtn = drawButton(ctx, { text: '跳过揪子', x: (W - 160) / 2, y: y - 52, w: 160, h: 42,
       fill: PALETTE.gold, textColor: PALETTE.textOnGold, fontSize: 22 });
   } else {
     rects.skipBtn = null;
@@ -877,7 +878,7 @@ function onTouch(x, y) {
 
   if (game.phase === 'place') {
     wsManager.send('place_piece', { r, c });
-    audio.playPlace();       // 落子音效
+    // 落子音效统一由 onBoardUpdate 的 WS 回显播放，避免本地+回显双播
     audio.vibrate(15);
   } else if (game.phase === 'capture') {
     handleCaptureTouch(r, c);
@@ -895,7 +896,7 @@ function handleCaptureTouch(r, c) {
       return;
     }
     wsManager.send('linked_capture', { r, c });
-    audio.playCapture();
+    // 揪子音效统一由 onBoardUpdate 的 WS 回显播放
     audio.vibrate(20);
     return;
   }
@@ -907,7 +908,7 @@ function handleCaptureTouch(r, c) {
     return;
   }
   wsManager.send('capture_piece', { r, c });
-  audio.playCapture();
+  // 揪子音效统一由 onBoardUpdate 的 WS 回显播放
   audio.vibrate(20);
 }
 
@@ -941,7 +942,7 @@ function handleMoveTouch(r, c) {
     return;
   }
   wsManager.send('move_piece', { fromR: piece.r, fromC: piece.c, toR: r, toC: c });
-  audio.playMove();
+  // 走子音效统一由 onBoardUpdate 的 WS 回显播放
   audio.vibrate(15);
 }
 

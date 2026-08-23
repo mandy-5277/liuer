@@ -466,10 +466,15 @@ function formatCd(ts) {
 }
 
 function drawRuleLink(ctx, y) {
-  // 点击区域：高度 28，中心对齐文字基线（y 为点击框中心，也是文字 middle 基线）
-  // 字体绘制用 baseline: 'middle' 且 y 与点击框中心一致，确保视觉与点击位置严格对齐
-  rects.ruleLink = { x: 0, y: y - 14, w: W, h: 28 };
-  drawText(ctx, '游戏规则 ▶', W / 2, y, { color: PALETTE.textDim, fontSize: 15, align: 'center', baseline: 'middle' });
+  // 点击区域只覆盖文字本身（避免误触底栏整条横线）
+  const text = '游戏规则 ▶';
+  const fs = 15;
+  ctx.font = `${fs}px ${FONT_FAMILY}`;
+  const textW = ctx.measureText(text).width;
+  const padX = 14;
+  const w = textW + padX * 2;
+  rects.ruleLink = { x: (W - w) / 2, y: y - 14, w, h: 28 };
+  drawText(ctx, text, W / 2, y, { color: PALETTE.textDim, fontSize: fs, align: 'center', baseline: 'middle' });
 }
 
 // ========== 匹配浮层 ==========

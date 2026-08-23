@@ -160,12 +160,12 @@ function drawBoardDiagram(ctx, cx, cy) {
     }
   }
 
-  // 四态棋子 + 标签（放大）
+  // 四态棋子 + 标签（放大），与游戏内实际视觉一致（无"成型🔒"状态）
   const pts = [
-    { color: 'black', col: 1, row: 1, label: '普通', lc: PALETTE.text },
-    { color: 'white', col: 3, row: 1, label: '选中', lc: '#D4A843', selected: true },
-    { color: 'black', col: 1, row: 3, label: '可揪', lc: '#D94A4A', capturable: true, pulse: 0.35 },
-    { color: 'white', col: 3, row: 3, label: '成型🔒', lc: PALETTE.text, formed: true },
+    { color: 'black', col: 1, row: 1, label: '普通黑', lc: PALETTE.text },
+    { color: 'white', col: 3, row: 1, label: '普通白', lc: PALETTE.text },
+    { color: 'black', col: 1, row: 3, label: '选中', lc: '#D4A843', selected: true },
+    { color: 'white', col: 3, row: 3, label: '可揪', lc: '#D94A4A', capturable: true, pulse: 0.35 },
   ];
   const pieceR = 13;
   pts.forEach((p) => {
@@ -243,7 +243,6 @@ function drawOverview(ctx, cardX, cardW, topY) {
   drawLegendItem(ctx, left + 110, c2y + 54, 'white', '', '普通白棋');
   drawLegendItem(ctx, left, c2y + 82, 'ring', '#D4A843', '选中态');
   drawLegendItem(ctx, left + 100, c2y + 82, 'ring', '#D94A4A', '可揪态');
-  drawLegendItem(ctx, left + 200, c2y + 82, 'lock', '', '成型(不可揪)');
 
   // ---- 卡3：棋盘规格 ----
   const c3y = c2y + c2h + 8;
@@ -252,6 +251,22 @@ function drawOverview(ctx, cardX, cardW, topY) {
   drawText(ctx, '棋盘规格', left, c3y + 26, { color: PALETTE.gold, fontSize: 20, bold: true });
   drawText(ctx, '6行×6列=36交叉点 · 每方最多18颗 · 棋子φ28px', left, c3y + 50, { color: PALETTE.textDim, fontSize: 13 });
   drawText(ctx, '坐标范围 (0,0)~(5,5) · 棋盘线闭合，不外延', left, c3y + 70, { color: PALETTE.textDim, fontSize: 13 });
+
+  // ---- 卡4：积分与段位规则 ----
+  const c4y = c3y + c3h + 8;
+  const c4h = 168;
+  drawCard(ctx, { x: cardX, y: c4y, w: cardW, h: c4h, radius: 14 });
+  drawText(ctx, '积分与段位规则', left, c4y + 28, { color: PALETTE.gold, fontSize: 20, bold: true });
+  const lines = [
+    '· 胜负积分：胜 +10 / 负 -3 / 平 -1',
+    '· 发起求和 -1，同意求和 +1',
+    '· 段位分级(按积分)：',
+    '   <200 初级小六   <400 中级小六',
+    '   <600 高级小六   <800 初级老六',
+    '   <1000 中级老六  <1200 高级老六',
+    '   ≥1200 资深老六',
+  ];
+  lines.forEach((t, i) => drawText(ctx, t, left, c4y + 56 + i * 16, { color: PALETTE.text, fontSize: 13 }));
 }
 
 /** 单个分组白色卡片（金色标题 + 正文，标题只显示一次） */
@@ -320,7 +335,7 @@ function drawContentCard(ctx) {
   contentTop = topY;
   contentBottom = navTop;
   if (tabIndex === 0) {
-    const totalH = 250 + 8 + 96 + 8 + 86 + 8;
+    const totalH = 250 + 8 + 96 + 8 + 86 + 8 + 168 + 8;
     maxScroll = Math.max(0, totalH - viewH);
     ctx.save();
     ctx.beginPath();
