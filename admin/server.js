@@ -37,6 +37,8 @@ const { migrate } = require('./src/migrate');
 
 const PORT = parseInt(process.env.ADMIN_PORT, 10) || 8080;
 const app = express();
+// 信任 Nginx 反代转发的 X-Forwarded-* 头（express-rate-limit 需要）
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 
 // 登录接口限流（防爆破）

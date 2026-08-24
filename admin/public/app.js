@@ -297,6 +297,15 @@ function shortId(s) { return s ? s.slice(0, 10) + (s.length > 10 ? '…' : '') :
 function fmtTime(t) { if (!t) return '-'; const d = new Date(t); return d.toLocaleString('zh-CN', { hour12: false }); }
 function escapeHtml(s) { return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
+// 修改密码
+$('#btn-change-pwd').onclick = async () => {
+  const cur = prompt('请输入当前密码：'); if (!cur) return;
+  const np = prompt('请输入新密码（至少8位，含字母和数字）：'); if (!np) return;
+  const r = await api('/api/admin/change-pwd', { method: 'POST', body: { oldPwd: cur, newPwd: np } });
+  if (r.ok) { localStorage.removeItem('adminToken'); toast('密码已修改，请重新登录'); setTimeout(() => location.reload(), 1000); }
+  else toast(r.errMsg || '修改失败');
+};
+
 // 启动
 if (TOKEN) {
   api('/api/admin/me').then((r) => {
