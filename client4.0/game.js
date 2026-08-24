@@ -76,24 +76,38 @@ function main() {
   sceneMgr.goto('home');
 
   // 4. 触摸事件转发
-  // 小游戏 wx.onTouchStart 的 Touch 对象坐标为 clientX/clientY（逻辑像素），
-  // 与 canvas.width/height（= windowWidth/windowHeight）同一坐标系，直接使用即可。
-  wx.onTouchStart((e) => {
+  // 坐标兼容性说明：
+  // - 多数机型上 wx 触摸对象的 clientX/clientY 为窗口逻辑像素，与 canvas 逻辑坐标系一致；
+  // - 部分 Android 机型 t.x/t.y 可能返回物理像素（含 dpr 放大）或含状态栏偏移，
+  //   表现为"点上方、识别到下方"的偏差。统一策略：
+  //   (1) 优先用 clientX/clientY（窗口逻辑坐标，语义更稳）；
+  //   (2) 若坐标超过逻辑屏幕尺寸（说明是物理像素），按 dpr 归一化；
+  // 这样可兼容个别终端，避免触点整体偏移。
+  function normTouch(e) {
     const t = e.touches[0];
-    if (!t) return;
-    const x = (t.x !== undefined) ? t.x : t.clientX;
-    const y = (t.y !== undefined) ? t.y : t.clientY;
+    if (!t) return null;
+    let x = (t.clientX !== undefined) ? t.clientX : (t.x !== undefined ? t.x : 0);
+    let y = (t.clientY !== undefined) ? t.clientY : (t.y !== undefined ? t.y : 0);
+    // 兜底归一化：坐标超过逻辑尺寸则按 dpr 缩放回逻辑像素
+    if ((logicalW && x > logicalW) || (logicalH && y > logicalH)) {
+      x = x / dpr;
+      y = y / dpr;
+    }
+    return { x, y };
+  }
+
+  wx.onTouchStart((e) => {
+    const p = normTouch(e);
+    if (!p) return;
     // 首次交互后启动背景音乐（小游戏要求用户手势后才能播放音频）
     audio.startBgm();
-    sceneMgr.touch(x, y);
+    sceneMgr.touch(p.x, p.y);
   });
 
   wx.onTouchMove((e) => {
-    const t = e.touches[0];
-    if (!t) return;
-    const x = (t.x !== undefined) ? t.x : t.clientX;
-    const y = (t.y !== undefined) ? t.y : t.clientY;
-    sceneMgr.touchMove(x, y);
+    const p = normTouch(e);
+    if (!p) return;
+    sceneMgr.touchMove(p.x, p.y);
   });
 
   wx.onTouchEnd((e) => {

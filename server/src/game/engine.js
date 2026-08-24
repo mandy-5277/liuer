@@ -373,6 +373,10 @@ class GameEngine {
     this.moveStepCount = 0;     // 重置走子步数计数
     this.noCatchRoundCount = 0;
 
+    // 兜底：走子先手方若一进场即被困死（无子/无路可走），直接判负，防卡死
+    const stuck = this._ensureCurrentTurnPlayable();
+    if (stuck) return stuck;
+
     return {
       success: true,
       stageChanged: true,
@@ -490,6 +494,10 @@ class GameEngine {
 
     this.currentTurn = enemyColor;
 
+    // 兜底：切换回合后，若新当前方被困死则判负，防卡死
+    const stuck = this._ensureCurrentTurnPlayable();
+    if (stuck) return stuck;
+
     return {
       success: true,
       lastAction: 'move',
@@ -563,6 +571,10 @@ class GameEngine {
       this.currentTurn = opponent;
     }
 
+    // 兜底：切换回合后，若新当前方（走子阶段）被困死则判负，防卡死
+    const stuck = this._ensureCurrentTurnPlayable();
+    if (stuck) return stuck;
+
     return {
       success: true,
       lastAction: 'capture',
@@ -603,6 +615,10 @@ class GameEngine {
     }
 
     this.currentTurn = opponent;
+
+    // 兜底：切换回合后，若新当前方（走子阶段）被困死则判负，防卡死
+    const stuck = this._ensureCurrentTurnPlayable();
+    if (stuck) return stuck;
 
     return {
       success: true,
@@ -855,6 +871,26 @@ class GameEngine {
     const maxMoveSteps = Math.max(120, totalStones * 20);
     if (this.moveStepCount >= maxMoveSteps) {
       return this.settleGame(GameResult.DRAW, EndReason.STALEMATE);
+    }
+    return null;
+  }
+
+  /**
+   * 主动检测"当前回合方"是否还能行动（防卡死兜底）。
+   * 若当前玩家已无棋子、或所有棋子均被围住无合法移动，
+   * 则直接判其负、对手胜，避免服务端无限等待其走子导致对局卡死。
+   * 调用时机：每次进入走子阶段、每次切换回合后。
+   * @returns {object|null} 若触发结算则返回 settleGame 结果，否则返回 null
+   */
+  _ensureCurrentTurnPlayable() {
+    if (this.stage !== Stage.MOVING) return null;
+    const color = this.currentTurn;
+    const winner = color === BLACK ? GameResult.WHITE_WIN : GameResult.BLACK_WIN;
+    if (getStoneCount(this.board, color) === 0) {
+      return this.settleGame(winner, EndReason.CHECKMATE);
+    }
+    if (!hasAvailableMove(color, this.board)) {
+      return this.settleGame(winner, EndReason.CHECKMATE);
     }
     return null;
   }

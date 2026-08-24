@@ -184,7 +184,8 @@ async function handleLogin(ws, data) {
   console.log(`[WS] 登录请求: ${openid}，开始查询数据库...`);
 
   // ========== 内容安全：检测登录时携带的昵称 ==========
-  // 若昵称违规，使用安全默认昵称并提示客户端，避免阻断登录流程
+  // 仅当接口明确判定为违规(risky=true)时才强制改名；
+  // 接口异常/超时(ok=false 但 risky=false)一律降级放行并记日志，避免误杀正常昵称
   let nickNameAdjusted = false;
   if (typeof nickName === 'string' && nickName.trim()) {
     try {
@@ -194,14 +195,12 @@ async function handleLogin(ws, data) {
         nickName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
         nickNameAdjusted = true;
       } else if (!check.ok) {
-        console.error('[Security] msgSecCheck 异常，登录昵称使用默认安全值');
-        nickName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
-        nickNameAdjusted = true;
+        // 接口异常（token 失效/频率限制/网络错误等），降级放行，保留原昵称
+        console.error('[Security] msgSecCheck 异常，降级放行，保留原昵称 openid=' + openid);
       }
     } catch (err) {
-      console.error('[Security] 昵称检测异常:', err.message);
-      nickName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
-      nickNameAdjusted = true;
+      // 调用抛异常同样降级放行，不阻断登录、不改名
+      console.error('[Security] 昵称检测异常，降级放行:', err.message);
     }
   }
 
@@ -215,19 +214,21 @@ async function handleLogin(ws, data) {
       ),
     ]);
 
-    // 清理历史脏昵称：若数据库中已存在违规昵称，主动重置为安全默认昵称
+    // 清理历史脏昵称：仅当明确违规(risky=true)才重置；异常降级放行
     if (user && user.nickName && typeof user.nickName === 'string') {
       try {
         const check = await security.msgSecCheck(user.nickName);
-        if (check.risky || !check.ok) {
+        if (check.risky) {
           const safeName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
           console.warn(`[Security] 历史昵称违规，已重置 openid=${openid}, old=${user.nickName}, new=${safeName}`);
           await userService.updateUser(openid, { nickName: safeName });
           user = await userService.findByOpenid(openid);
           nickNameAdjusted = true;
+        } else if (!check.ok) {
+          console.error('[Security] 历史昵称检测异常，降级放行 openid=' + openid);
         }
       } catch (err) {
-        console.error('[Security] 历史昵称检测异常:', err.message);
+        console.error('[Security] 历史昵称检测异常，降级放行:', err.message);
       }
     }
 
@@ -457,16 +458,18 @@ async function handleUpdateProfile(ws, data) {
   }
 
   // ========== 内容安全：昵称文本检测 ==========
+  // 仅明确违规(risky=true)才拒绝；接口异常降级放行，允许正常改名
   if (updates.nickName) {
     try {
       const check = await security.msgSecCheck(updates.nickName);
-      if (check.risky || !check.ok) {
+      if (check.risky) {
         console.warn(`[Security] 更新昵称违规，openid=${openid}, nickName=${updates.nickName}, err=${check.errcode}`);
         return sendToPlayer(openid, { cmd: 'error', data: { errMsg: '昵称包含违规内容，请修改后重试' } });
+      } else if (!check.ok) {
+        console.error('[Security] 更新昵称检测异常，降级放行 openid=' + openid);
       }
     } catch (err) {
-      console.error('[Security] 昵称检测异常:', err.message);
-      return sendToPlayer(openid, { cmd: 'error', data: { errMsg: '内容安全检测服务异常，请稍后重试' } });
+      console.error('[Security] 昵称检测异常，降级放行:', err.message);
     }
   }
 
