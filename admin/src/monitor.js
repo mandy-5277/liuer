@@ -152,4 +152,30 @@ async function collect() {
   };
 }
 
-module.exports = { collect, TH };
+// 落库性能快照（由定时器每 5 分钟调用），用于历史曲线
+async function recordHistory() {
+  const m = await collect();
+  const rxKBps = m.net && m.net.rxKBps ? m.net.rxKBps : 0;
+  const txKBps = m.net && m.net.txKBps ? m.net.txKBps : 0;
+  const mysqlConns = m.mysql && m.mysql.ok ? m.mysql.connections : 0;
+  await query(
+    'INSERT INTO monitor_history (snapTime, cpu, mem, disk, mysqlConns, rxKBps, txKBps) VALUES (NOW(), ?, ?, ?, ?, ?, ?)',
+    [m.cpu.percent, m.mem.percent, m.disk.percent, mysqlConns, rxKBps, txKBps]
+  );
+  return m;
+}
+
+// 查询历史曲线（默认 24 小时，最多 30 天）
+async function getHistory(hours = 24) {
+  const h = Math.min(Math.max(parseInt(hours, 10) || 24, 1), 720);
+  const rows = await query(
+    `SELECT snapTime, cpu, mem, disk, mysqlConns, rxKBps, txKBps
+     FROM monitor_history
+     WHERE snapTime >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+     ORDER BY snapTime`,
+    [h]
+  );
+  return { hours: h, points: rows };
+}
+
+module.exports = { collect, recordHistory, getHistory, TH };

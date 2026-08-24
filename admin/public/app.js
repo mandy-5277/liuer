@@ -77,6 +77,9 @@ document.querySelectorAll('.tab').forEach((t) => {
   };
 });
 
+// 性能历史曲线时间范围切换
+if ($('#mon-range')) $('#mon-range').onchange = () => loadMonitorHistory();
+
 // ============ 统计 ============
 async function loadStats() {
   const ov = await api('/api/stats/overview');
@@ -271,6 +274,55 @@ async function loadMonitor() {
   $('#mon-alerts').innerHTML = (alerts.list || []).length
     ? alerts.list.map((a) => `<div>[${fmtTime(a.createTime)}] <b>${a.level}</b> ${a.metric}: ${a.message}</div>`).join('')
     : '<div>无未处理预警</div>';
+  await loadMonitorHistory();
+}
+
+// 性能历史曲线
+async function loadMonitorHistory() {
+  const hours = parseInt($('#mon-range') ? $('#mon-range').value : '24', 10) || 24;
+  const r = await api('/api/monitor/history?hours=' + hours);
+  if (!r.ok || !r.points) return;
+  const pts = r.points;
+  const cv = $('#mon-chart');
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height, pad = 38;
+  ctx.clearRect(0, 0, W, H);
+  if (!pts.length) { ctx.fillStyle = '#999'; ctx.font = '14px sans-serif'; ctx.fillText('暂无历史数据（服务启动后每 5 分钟采集一次）', 20, H / 2); return; }
+  const series = [
+    { key: 'cpu', color: '#e67e22', label: 'CPU%' },
+    { key: 'mem', color: '#2980b9', label: '内存%' },
+    { key: 'disk', color: '#27ae60', label: '磁盘%' },
+  ];
+  const maxV = 100;
+  const n = pts.length;
+  const xAt = (i) => pad + (W - pad - 10) * (n === 1 ? 0.5 : i / (n - 1));
+  const yAt = (v) => H - pad - (H - pad - 12) * (Math.min(v, maxV) / maxV);
+  // 网格 + Y 轴
+  ctx.strokeStyle = '#eee'; ctx.fillStyle = '#999'; ctx.font = '11px sans-serif';
+  for (let g = 0; g <= 100; g += 25) {
+    const y = yAt(g);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - 10, y); ctx.stroke();
+    ctx.fillText(g + '%', 4, y + 3);
+  }
+  // 折线
+  for (const s of series) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.beginPath();
+    pts.forEach((p, i) => { const x = xAt(i), y = yAt(p[s.key] || 0); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+  // 图例
+  let lx = pad;
+  ctx.font = '12px sans-serif';
+  for (const s of series) { ctx.fillStyle = s.color; ctx.fillRect(lx, 8, 12, 12); ctx.fillStyle = '#333'; ctx.fillText(s.label, lx + 16, 18); lx += 80; }
+  // X 轴时间标注（首/中/尾）
+  ctx.fillStyle = '#999';
+  const labels = [0, Math.floor(n / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i);
+  labels.forEach((i) => {
+    const d = new Date(pts[i].snapTime);
+    const txt = d.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    ctx.fillText(txt, Math.max(2, xAt(i) - 30), H - 10);
+  });
 }
 
 // 每 30s 刷新统计与监控

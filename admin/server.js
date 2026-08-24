@@ -176,6 +176,12 @@ app.get('/api/monitor', requireAuth, requirePerm('monitor:view'), async (req, re
   res.json({ ok: true, ...m });
 });
 
+// 性能历史曲线（默认 24h，?hours= 可指定 1~720）
+app.get('/api/monitor/history', requireAuth, requirePerm('monitor:view'), async (req, res) => {
+  const r = await monitor.getHistory(req.query.hours);
+  res.json({ ok: true, ...r });
+});
+
 // SPA 兜底（前端路由刷新）
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ ok: false, errMsg: '接口不存在' });
@@ -189,6 +195,8 @@ async function startTimers() {
   const tick = async () => {
     try { await stats.snapshot(); await stats.pushRealtimePoint(); }
     catch (e) { console.error('[Timer] 统计采集失败:', e.message); }
+    try { await monitor.recordHistory(); }
+    catch (e) { console.error('[Timer] 性能采集失败:', e.message); }
   };
   await tick();
   snapshotTimer = setInterval(tick, 5 * 60 * 1000);

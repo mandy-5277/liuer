@@ -108,6 +108,17 @@
       <!-- 性能监控 -->
       <section id="tab-monitor" class="panel hidden">
         <div class="cards" id="mon-cards"></div>
+        <div class="sub-block">
+          <h3>性能历史曲线
+            <select id="mon-range" style="margin-left:8px;font-size:13px">
+              <option value="24">近 24 小时</option>
+              <option value="72">近 3 天</option>
+              <option value="168">近 7 天</option>
+              <option value="720">近 30 天</option>
+            </select>
+          </h3>
+          <canvas id="mon-chart" width="760" height="260" style="width:100%;background:#fff;border-radius:8px"></canvas>
+        </div>
         <div class="sub-block"><h3>预警记录</h3><div id="mon-alerts" class="log"></div></div>
       </section>
     </main>

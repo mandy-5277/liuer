@@ -84,6 +84,20 @@ async function migrate() {
       KEY idx_createTime (createTime)
     `);
 
+    // 性能历史（用于历史曲线，定时落库）
+    await createTableIfNotExists(conn, 'monitor_history', `
+      id         BIGINT        NOT NULL AUTO_INCREMENT,
+      snapTime   DATETIME      NOT NULL,
+      cpu        FLOAT         NOT NULL DEFAULT 0,
+      mem        FLOAT         NOT NULL DEFAULT 0,
+      disk       FLOAT         NOT NULL DEFAULT 0,
+      mysqlConns INT           NOT NULL DEFAULT 0,
+      rxKBps     FLOAT         NOT NULL DEFAULT 0,
+      txKBps     FLOAT         NOT NULL DEFAULT 0,
+      PRIMARY KEY (id),
+      KEY idx_snapTime (snapTime)
+    `);
+
     console.log('[Migrate] 迁移完成');
   } finally {
     conn.release();

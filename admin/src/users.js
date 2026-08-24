@@ -74,12 +74,12 @@ async function setBlacklist(openid, on) {
   return { ok: true };
 }
 
-// 清分：积分归零、段位重置、胜负场次清零（保留机器人判定）
+// 清分：仅将积分(rankScore)归零。段位由积分自动计算，无需修改；
+// 胜负场次为历史战绩，保留不清除。
 async function clearScore(openid) {
-  await query(
-    'UPDATE users SET rankScore = 0, rankName = ?, winCount = 0, loseCount = 0, drawCount = 0 WHERE openid = ?',
-    ['初级小六', openid]
-  );
+  const [r] = await query('SELECT openid FROM users WHERE openid = ?', [openid]);
+  if (!r) return { ok: false, msg: '用户不存在' };
+  await query('UPDATE users SET rankScore = 0 WHERE openid = ?', [openid]);
   return { ok: true };
 }
 
