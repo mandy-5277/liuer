@@ -8,7 +8,7 @@
 
 const { wsManager } = require('../utils/websocket');
 const { state, saveProfile, AVATAR_PRESETS, randomNickname, syncUserData } = require('../state');
-const { PALETTE, drawButton, drawText, drawCard, drawAvatar, hit, roundRect, drawBottomNav } = require('../utils/ui');
+const { PALETTE, drawButton, drawText, drawCard, drawAvatar, hit, roundRect, drawBottomNav, FONT_FAMILY } = require('../utils/ui');
 const { SERVER_BASE } = require('../config');
 const sceneMgr = require('./index');
 

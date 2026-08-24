@@ -253,6 +253,14 @@ function connectGameServer() {
     syncUserData(data);
   });
 
+  wsManager.on('error', (data) => {
+    const errMsg = (data && data.errMsg) || '操作失败';
+    // 内容安全相关错误需要明确提示用户
+    if (errMsg.indexOf('违规') >= 0 || errMsg.indexOf('安全检测') >= 0) {
+      wx.showToast({ title: errMsg, icon: 'none', duration: 2500 });
+    }
+  });
+
   wsManager.on('server_shutdown', () => {
     console.log('[State] 服务器维护中');
   });
@@ -278,6 +286,10 @@ function syncUserData(data) {
       nickName: data.nickName,
       avatarUrl: data.avatarUrl,
     });
+    // 服务端提示登录昵称被安全检测重置为默认昵称
+    if (data.nickNameAdjusted) {
+      wx.showToast({ title: '昵称含违规内容，请重新设置', icon: 'none', duration: 2500 });
+    }
     if (state.profileSetupForced) {
       // 本次为"清缓存强制引导"：保留完善资料浮层（用户清缓存后应重新确认资料），
       // 但用服务端已有资料预填，避免空白。用户确认后会写回服务端并关闭浮层。

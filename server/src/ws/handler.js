@@ -19,6 +19,7 @@ const {
 } = require('../services/session');
 const { getRankName } = require('../game/board');
 const { game: gameConfig } = require('../config');
+const security = require('../services/security');
 
 /**
  * 主消息分发器
@@ -170,7 +171,7 @@ function getOpenid(ws) {
 // ========== 认证处理 ==========
 
 async function handleLogin(ws, data) {
-  const { openid, nickName, avatarUrl } = data;
+  let { openid, nickName, avatarUrl } = data;
 
   if (!openid) {
     ws.send(JSON.stringify({ cmd: 'error', data: { errMsg: '缺少 openid 参数' } }));
@@ -182,15 +183,53 @@ async function handleLogin(ws, data) {
   safeSend(ws, { cmd: 'login_ack', data: { openid } });
   console.log(`[WS] 登录请求: ${openid}，开始查询数据库...`);
 
+  // ========== 内容安全：检测登录时携带的昵称 ==========
+  // 若昵称违规，使用安全默认昵称并提示客户端，避免阻断登录流程
+  let nickNameAdjusted = false;
+  if (typeof nickName === 'string' && nickName.trim()) {
+    try {
+      const check = await security.msgSecCheck(nickName.trim());
+      if (check.risky) {
+        console.warn(`[Security] 登录昵称违规，openid=${openid}, nickName=${nickName}`);
+        nickName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
+        nickNameAdjusted = true;
+      } else if (!check.ok) {
+        console.error('[Security] msgSecCheck 异常，登录昵称使用默认安全值');
+        nickName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
+        nickNameAdjusted = true;
+      }
+    } catch (err) {
+      console.error('[Security] 昵称检测异常:', err.message);
+      nickName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
+      nickNameAdjusted = true;
+    }
+  }
+
   // ========== DB 操作独立 try-catch，失败不影响连接 ==========
   try {
     // 获取或创建用户（带 5s 超时）
-    const user = await Promise.race([
+    let user = await Promise.race([
       userService.getOrCreateUser(openid, { nickName, avatarUrl }),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('数据库查询超时(5s)')), 5000)
       ),
     ]);
+
+    // 清理历史脏昵称：若数据库中已存在违规昵称，主动重置为安全默认昵称
+    if (user && user.nickName && typeof user.nickName === 'string') {
+      try {
+        const check = await security.msgSecCheck(user.nickName);
+        if (check.risky || !check.ok) {
+          const safeName = '玩家' + Math.floor(Math.random() * 9000 + 1000);
+          console.warn(`[Security] 历史昵称违规，已重置 openid=${openid}, old=${user.nickName}, new=${safeName}`);
+          await userService.updateUser(openid, { nickName: safeName });
+          user = await userService.findByOpenid(openid);
+          nickNameAdjusted = true;
+        }
+      } catch (err) {
+        console.error('[Security] 历史昵称检测异常:', err.message);
+      }
+    }
 
     // 注册连接，并把 openid 绑定到 ws 对象方便心跳/close 直接定位
     ws.openid = openid;
@@ -216,6 +255,7 @@ async function handleLogin(ws, data) {
         openid,
         nickName: user.nickName,
         avatarUrl: user.avatarUrl,
+        nickNameAdjusted,
         rankScore: user.rankScore,
         rankName: user.rankName,
         // 场次统计：getOrCreateUser 返回 winCount/loseCount/drawCount（wins/losses/draws 为旧字段，兼容保留）
@@ -254,6 +294,7 @@ async function handleLogin(ws, data) {
         openid,
         nickName: fallbackUser.nickName,
         avatarUrl: fallbackUser.avatarUrl,
+        nickNameAdjusted,
         rankScore: fallbackUser.rankScore,
         rankName: fallbackUser.rankName,
         totalGames: 0, winCount: 0, loseCount: 0, drawCount: 0, wins: 0, losses: 0, draws: 0, winRate: 0,
@@ -413,6 +454,20 @@ async function handleUpdateProfile(ws, data) {
   }
   if (!Object.keys(updates).length) {
     return sendToPlayer(openid, { cmd: 'error', data: { errMsg: '没有可更新的资料' } });
+  }
+
+  // ========== 内容安全：昵称文本检测 ==========
+  if (updates.nickName) {
+    try {
+      const check = await security.msgSecCheck(updates.nickName);
+      if (check.risky || !check.ok) {
+        console.warn(`[Security] 更新昵称违规，openid=${openid}, nickName=${updates.nickName}, err=${check.errcode}`);
+        return sendToPlayer(openid, { cmd: 'error', data: { errMsg: '昵称包含违规内容，请修改后重试' } });
+      }
+    } catch (err) {
+      console.error('[Security] 昵称检测异常:', err.message);
+      return sendToPlayer(openid, { cmd: 'error', data: { errMsg: '内容安全检测服务异常，请稍后重试' } });
+    }
   }
 
   try {

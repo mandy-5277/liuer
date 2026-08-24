@@ -879,7 +879,8 @@ function uploadAvatar() {
                   wsManager.send('update_profile', { nickName, avatarUrl });
                   wx.showToast({ title: '头像已更新', icon: 'success' });
                 } else {
-                  wx.showToast({ title: '上传失败', icon: 'none' });
+                  const errMsg = (rr.data && rr.data.errMsg) || '上传失败';
+                  wx.showToast({ title: errMsg, icon: 'none' });
                 }
               },
               fail: () => { wx.hideLoading(); wx.showToast({ title: '上传失败', icon: 'none' }); },

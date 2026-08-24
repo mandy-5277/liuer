@@ -23,6 +23,7 @@ const { port, wsHeartbeatInterval, wechat } = require('./config');
 const { dispatch } = require('./ws/handler');
 const { wsMap, removeConnection, gameSessions, findActiveGameByPlayer, handlePlayerDisconnect, matchingQueue, joinMatching } = require('./services/session');
 const robot = require('./services/robot');
+const security = require('./services/security');
 const { initSchema } = require('./db/mysql');
 const { ensureEnergySchema } = require('./services/data');
 const redis = require('./db/redis');
@@ -130,8 +131,10 @@ app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
  * POST /api/avatar/upload  { openid, base64, ext }
  * 接收小游戏上传的 base64 头像图片，保存到 uploads 目录并返回可访问 URL。
  * 限制单张 2MB，仅允许常见图片扩展名。
+ * 保存前调用微信 imgSecCheck 进行内容安全检测。
  */
-app.post('/api/avatar/upload', (req, res) => {
+app.post('/api/avatar/upload', async (req, res) => {
+  let absPath = '';
   try {
     const { openid = 'anon', base64 = '', ext = 'png' } = req.body || {};
     if (!base64) {
@@ -143,9 +146,22 @@ app.post('/api/avatar/upload', (req, res) => {
     if (buf.length > 2 * 1024 * 1024) {
       return res.status(400).json({ ok: false, errMsg: '头像图片不能超过 2MB' });
     }
+
+    // ========== 内容安全：图片检测 ==========
+    try {
+      const check = await security.imgSecCheck(buf, `avatar.${ext}`);
+      if (check.risky || !check.ok) {
+        console.warn(`[Security] 头像图片违规，openid=${openid}, err=${check.errcode}`);
+        return res.status(400).json({ ok: false, errMsg: '头像图片包含违规内容，请更换' });
+      }
+    } catch (secErr) {
+      console.error('[Security] 头像检测异常:', secErr.message);
+      return res.status(500).json({ ok: false, errMsg: '头像安全检测服务异常，请稍后重试' });
+    }
+
     const allowedExt = /^(png|jpe?g|gif|webp)$/i.test(ext) ? ext : 'png';
     const name = 'a_' + crypto.randomBytes(8).toString('hex') + '.' + allowedExt;
-    const absPath = path.join(UPLOAD_DIR, name);
+    absPath = path.join(UPLOAD_DIR, name);
     fs.writeFileSync(absPath, buf);
     console.log('[Upload] 头像已保存:', name, '来源:', openid);
     // 构造可访问的完整 URL（支持 Nginx 反代，返回 https://域名/uploads/xxx）
@@ -155,6 +171,7 @@ app.post('/api/avatar/upload', (req, res) => {
     res.json({ ok: true, url });
   } catch (err) {
     console.error('[Upload] 头像保存失败:', err);
+    if (absPath) { try { fs.unlinkSync(absPath); } catch (e) { /* ignore */ } }
     res.status(500).json({ ok: false, errMsg: '头像保存失败' });
   }
 });
