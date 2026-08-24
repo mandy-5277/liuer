@@ -1,0 +1,1 @@
+fix: board.js 导出 getRankLevel（修复 settleGame 崩溃：超时报错退房/揪完不结算/P2揪子卡死）

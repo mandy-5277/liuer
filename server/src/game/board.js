@@ -333,16 +333,31 @@ function isBoardFull(board) {
 }
 
 /**
+ * 根据积分计算段位「级别序号」（用于升级/降级判定）
+ * 负分=0(还未入门)；落入 ranks 区间=索引+1(1..14)；≥680 固定为15(资深老六+，星星另算)
+ */
+function getRankLevel(score) {
+  const { ranks } = require('../config').game;
+  if (score < 0) return 0;
+  for (let i = 0; i < ranks.length; i++) {
+    const r = ranks[i];
+    if (score >= r.min && score <= r.max) return i + 1;
+  }
+  return ranks.length + 1; // ≥680：资深老六+（星星展示）
+}
+
+/**
  * 根据积分计算段位名称
  */
 function getRankName(score) {
   const { ranks } = require('../config').game;
+  if (score < 0) return '还未入门';
   for (const rank of ranks) {
     if (score >= rank.min && score <= rank.max) {
       return rank.name;
     }
   }
-  return '初级小六';
+  return '资深老六';
 }
 
 module.exports = {
@@ -362,5 +377,6 @@ module.exports = {
   getCapturableCells,
   getLegalMoves,
   isBoardFull,
+  getRankLevel,
   getRankName,
 };
