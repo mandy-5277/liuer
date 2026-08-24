@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>六儿 · 后台管理系统</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 登录页 -->
+  <div id="login-view" class="login-wrap">
+    <div class="login-card">
+      <h1>六儿后台管理</h1>
+      <p class="sub">Liuer Admin Console</p>
+      <input id="login-user" placeholder="管理员账号" autocomplete="username" />
+      <input id="login-pwd" type="password" placeholder="密码" autocomplete="current-password" />
+      <button id="login-btn">登 录</button>
+      <div id="login-err" class="err"></div>
+    </div>
+  </div>
+
+  <!-- 主控制台 -->
+  <div id="main-view" class="hidden">
+    <header class="topbar">
+      <div class="brand">六儿 · 后台管理</div>
+      <div class="user">
+        <span id="cur-admin"></span>
+        <button id="logout-btn" class="link">退出</button>
+      </div>
+    </header>
+    <nav class="tabs">
+      <button class="tab active" data-tab="stats">用户统计</button>
+      <button class="tab" data-tab="users">用户管理</button>
+      <button class="tab" data-tab="system">系统管理</button>
+      <button class="tab" data-tab="monitor">性能监控</button>
+    </nav>
+
+    <main>
+      <!-- 统计 -->
+      <section id="tab-stats" class="panel">
+        <div class="cards">
+          <div class="card"><div class="num" id="st-total">-</div><div class="lbl">总用户数</div></div>
+          <div class="card"><div class="num" id="st-new">-</div><div class="lbl">今日新增</div></div>
+          <div class="card"><div class="num" id="st-dau">-</div><div class="lbl">今日日活</div></div>
+        </div>
+        <div class="toolbar">
+          <label>天粒度曲线：
+            <select id="st-days">
+              <option value="7">近 7 天</option>
+              <option value="14">近 14 天</option>
+              <option value="30">近 30 天</option>
+              <option value="60">近 2 个月</option>
+            </select>
+          </label>
+          <span class="hint">5 分钟粒度实时刷新</span>
+        </div>
+        <canvas id="chart" width="800" height="320"></canvas>
+      </section>
+
+      <!-- 用户管理 -->
+      <section id="tab-users" class="panel hidden">
+        <div class="toolbar">
+          <input id="u-keyword" placeholder="ID / 昵称" />
+          <input id="u-start" type="date" />
+          <span>~</span>
+          <input id="u-end" type="date" />
+          <label><input type="checkbox" id="u-black" /> 仅黑名单</label>
+          <button id="u-search">查询</button>
+          <span class="hint">默认显示最新活跃 100 人</span>
+        </div>
+        <div class="table-wrap">
+          <table id="u-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>昵称</th><th>注册时间</th><th>级别</th><th>场次</th>
+                <th>积分</th><th>胜率</th><th>看广告</th><th>分享</th><th>最后上线</th>
+                <th>黑名单</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="u-total" class="hint"></div>
+      </section>
+
+      <!-- 系统管理 -->
+      <section id="tab-system" class="panel hidden">
+        <div class="sub-block">
+          <h3>管理员（分权分域）</h3>
+          <div id="sys-admins"></div>
+          <button id="sys-add-admin" class="primary">新增管理员</button>
+        </div>
+        <div class="sub-block">
+          <h3>服务器</h3>
+          <button id="sys-restart" class="danger">重启游戏服务端</button>
+          <span class="hint">（需服务端开启 ADMIN_ALLOW_RESTART=1）</span>
+        </div>
+        <div class="sub-block">
+          <h3>操作日志</h3>
+          <div id="sys-oplog" class="log"></div>
+        </div>
+        <div class="sub-block">
+          <h3>安全预警</h3>
+          <div id="sys-alerts" class="log"></div>
+        </div>
+      </section>
+
+      <!-- 性能监控 -->
+      <section id="tab-monitor" class="panel hidden">
+        <div class="cards" id="mon-cards"></div>
+        <div class="sub-block"><h3>预警记录</h3><div id="mon-alerts" class="log"></div></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 通用弹层 -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div id="modal-body"></div>
+      <div class="modal-actions"><button id="modal-close" class="link">关闭</button></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
