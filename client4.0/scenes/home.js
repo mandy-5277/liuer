@@ -466,14 +466,20 @@ function formatCd(ts) {
 }
 
 function drawRuleLink(ctx, y) {
-  // 点击区域只覆盖文字本身（避免误触底栏整条横线）
+  // 点击区域贴合文字实际字形（用 measureText 边界），上下各留 8px 余量，
+  // 确保点击文字任意位置都能命中，避免“偏下才点得进”的错位。
   const text = '游戏规则 ▶';
   const fs = 15;
   ctx.font = `${fs}px ${FONT_FAMILY}`;
-  const textW = ctx.measureText(text).width;
-  const padX = 14;
+  const m = ctx.measureText(text);
+  const textW = m.width;
+  const ascent = (m.actualBoundingBoxAscent != null) ? m.actualBoundingBoxAscent : fs * 0.8;
+  const descent = (m.actualBoundingBoxDescent != null) ? m.actualBoundingBoxDescent : fs * 0.25;
+  const padX = 14, padY = 8;
   const w = textW + padX * 2;
-  rects.ruleLink = { x: (W - w) / 2, y: y - 14, w, h: 28 };
+  const h = ascent + descent + padY * 2;
+  // 文字以 middle 基线绘制在 y，故矩形顶 = y - ascent - padY，底 = y + descent + padY
+  rects.ruleLink = { x: (W - w) / 2, y: y - ascent - padY, w, h };
   drawText(ctx, text, W / 2, y, { color: PALETTE.textDim, fontSize: fs, align: 'center', baseline: 'middle' });
 }
 
