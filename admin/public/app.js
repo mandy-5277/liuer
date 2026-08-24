@@ -3,6 +3,11 @@ const $ = (s) => document.querySelector(s);
 let TOKEN = localStorage.getItem('liuer_admin_token') || '';
 let ADMIN = null;
 
+// 强制 HTTPS：若通过 HTTP 访问（非本地），跳转 HTTPS
+if (window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  window.location.href = 'https://' + window.location.host + window.location.pathname + window.location.search;
+}
+
 async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
